@@ -13,9 +13,9 @@ import { PathPicker } from "./PathPicker";
 import { StatusPill } from "./common";
 
 const GUIDANCE_REAL =
-  "A real topic is a genuine ONDC/beckn topic the source SHOULD answer. Give it ≥2 phrasings so the probe can measure self-consistency across wordings.";
+  "A real topic is a genuine topic the source SHOULD answer. Give it ≥2 phrasings so the probe can measure self-consistency across wordings.";
 const GUIDANCE_CANARY =
-  "A canary is a FABRICATED topic that does NOT exist in ONDC/beckn — an invented verb, header, enum, or version. A well-grounded source abstains; a confabulator answers it confidently, which is the alarm that its confident answers to real topics are worth nothing either.";
+  "A canary is a FABRICATED topic that does NOT exist in the subject — an invented verb, header, enum, or version. A well-grounded source abstains; a confabulator answers it confidently, which is the alarm that its confident answers to real topics are worth nothing either.";
 
 export function EditorSheet(props: {
   editor: EditorState;

@@ -15,17 +15,19 @@ function IdentityPanel({
   onExport,
 }: {
   manifest: Manifest | null;
-  onSaveMeta: (id: string, version: string, levels: string[]) => void;
+  onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
 }): React.JSX.Element {
   const [id, setId] = useState(manifest?.id ?? "");
   const [version, setVersion] = useState(manifest?.version ?? "");
+  const [subject, setSubject] = useState(manifest?.subject ?? "");
   const [levels, setLevels] = useState<string[]>(manifest?.levels ?? []);
 
   // Resync the form when the loaded manifest changes underneath us.
   useEffect(() => {
     setId(manifest?.id ?? "");
     setVersion(manifest?.version ?? "");
+    setSubject(manifest?.subject ?? "");
     setLevels(manifest?.levels ?? []);
   }, [manifest]);
 
@@ -37,6 +39,14 @@ function IdentityPanel({
         <input className="f" value={id} onChange={(e) => setId(e.target.value)} />
         <label>version</label>
         <input className="f" value={version} onChange={(e) => setVersion(e.target.value)} />
+
+        <label>subject</label>
+        <input
+          className="f"
+          placeholder="a noun-phrase naming the domain (e.g. the ONDC protocol specifications)"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+        />
 
         <label>level labels</label>
         {levels.map((l, i) => (
@@ -60,7 +70,7 @@ function IdentityPanel({
           <button
             className="btn subtle sm"
             type="button"
-            onClick={() => onSaveMeta(id.trim(), version.trim(), levels.map((l) => l.trim()).filter(Boolean))}
+            onClick={() => onSaveMeta(id.trim(), version.trim(), subject.trim(), levels.map((l) => l.trim()).filter(Boolean))}
           >
             Save identity
           </button>
@@ -81,7 +91,7 @@ export function Header(props: {
   manifest: Manifest | null;
   theme: "light" | "dark" | null;
   dispatch: Dispatch<Action>;
-  onSaveMeta: (id: string, version: string, levels: string[]) => void;
+  onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
 }): React.JSX.Element {
   const { view, manifest, dispatch } = props;
@@ -89,6 +99,7 @@ export function Header(props: {
     <header className="topbar">
       <div className="brand">KB STUDIO</div>
       <div className="manifest-id">{manifest ? `${manifest.id}@${manifest.version}` : "…"}</div>
+      {manifest?.subject ? <div className="manifest-subject">{manifest.subject}</div> : null}
       <div className="spacer" />
       <div className="view-switch">
         {(["author", "coverage"] as const).map((v) => (

@@ -86,7 +86,11 @@ function takeSubject(args: string[]): { subject: string | undefined; rest: strin
 }
 
 async function main(): Promise<number> {
-  const args = process.argv.slice(2);
+  // pnpm forwards a literal `--` separator on `pnpm dev -- --health`; drop a single leading one so
+  // both `pnpm dev --health` and `pnpm dev -- --health` behave the same (and `--` still means
+  // end-of-options for a prose prompt).
+  const argv = process.argv.slice(2);
+  const args = argv[0] === "--" ? argv.slice(1) : argv;
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     process.stderr.write(USAGE);
