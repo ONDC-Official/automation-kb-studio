@@ -1,0 +1,99 @@
+/**
+ * Local mirrors of the engine's public shapes. These are DELIBERATELY hand-copied and NOT imported
+ * from `@evaluator/core`: this file compiles into a browser bundle, and importing the engine would
+ * drag the OpenAI SDK (and Node built-ins) into it. The server sends these shapes over `/api`; here
+ * we only describe them for the type-checker. Keep them byte-compatible with the engine.
+ */
+
+export type Kind = "real" | "canary";
+
+export interface Topic {
+  id: string;
+  path: string[];
+  title: string;
+  questions: string[];
+  kind: Kind;
+}
+
+export interface Manifest {
+  id: string;
+  version: string;
+  /** A noun-phrase naming the domain the source is about (e.g. "the ONDC protocol specifications"). */
+  subject?: string;
+  levels?: string[];
+  topics: Topic[];
+}
+
+export type TopicStatus =
+  | "grounded"
+  | "confident-ungrounded"
+  | "refused"
+  | "inconsistent"
+  | "canary-ok"
+  | "canary-bit";
+
+export interface TopicResult {
+  key: string;
+  id: string;
+  path: string[];
+  title: string;
+  kind: Kind;
+  status: TopicStatus;
+  agreement: number;
+  sample: string;
+  detail: string;
+}
+
+export interface Metrics {
+  groundedRate: number;
+  refusalRate: number;
+  inconsistencyRate: number;
+  canaryBiteRate: number;
+}
+
+export interface Totals {
+  topics: number;
+  real: number;
+  canary: number;
+}
+
+export interface CoverageReport {
+  manifestId: string;
+  manifestVersion: string;
+  source: string;
+  totals: Totals;
+  metrics: Metrics;
+  topics: TopicResult[];
+  judge: { schemaEnforced: boolean; warnings: string[] };
+  caveats: string[];
+  generatedAt?: string;
+}
+
+export interface CoverageNode {
+  segment: string;
+  path: string[];
+  totals: Totals;
+  metrics: Metrics;
+  topics: TopicResult[];
+  children: CoverageNode[];
+}
+
+/** `GET /api/coverage/<file>?tree=1` returns a report plus the per-level rollup on `tree`. */
+export interface CoverageReportWithTree extends CoverageReport {
+  tree?: CoverageNode;
+}
+
+export interface CoverageSummary {
+  file: string;
+  generatedAt: string;
+  manifestId: string;
+  manifestVersion: string;
+  source: string;
+  totals: Totals;
+  metrics: Metrics;
+}
+
+export interface NodeInfo {
+  path: string[];
+  hasTopics: boolean;
+}

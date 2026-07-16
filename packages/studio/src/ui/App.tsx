@@ -1,0 +1,330 @@
+/**
+ * App — owns the reducer, performs all network I/O, and wires the two views (Author / Coverage), the
+ * editor, and the toast. Every side effect (fetch, timer, confirm, the DOM, the clock) lives HERE;
+ * `state.ts` stays a pure fold, dispatched to with the results.
+ */
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+
+import { del, encodeRef, get, post, put } from "./api";
+import { statusIndex } from "./derive";
+import {
+  editorMoved,
+  editorTopic,
+  initialState,
+  reducer,
+  validateEditor,
+  type View,
+} from "./state";
+import type {
+  CoverageReportWithTree,
+  CoverageSummary,
+  Kind,
+  Manifest,
+  NodeInfo,
+  Topic,
+} from "./types";
+import { CoverageView } from "./components/CoverageView";
+import { EditorSheet } from "./components/EditorSheet";
+import { Header } from "./components/Header";
+import { PathTree } from "./components/PathTree";
+import { Toast } from "./components/Toast";
+import { TopicList } from "./components/TopicList";
+
+const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+function hashView(): View | null {
+  const h = window.location.hash.replace(/^#/, "").split("/")[0];
+  return h === "coverage" || h === "author" ? h : null;
+}
+
+export function App(): React.JSX.Element {
+  const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const inflight = useRef(new Set<string>());
+
+  // ---- loaders -----------------------------------------------------------------------------------
+  const loadManifest = useCallback(async () => {
+    try {
+      dispatch({ type: "manifestLoaded", manifest: await get<Manifest>("/api/manifest") });
+    } catch (e) {
+      dispatch({ type: "manifestError", error: errMsg(e) });
+    }
+  }, []);
+
+  const loadNodes = useCallback(async () => {
+    try {
+      const r = await get<{ nodes: NodeInfo[] }>("/api/nodes");
+      dispatch({ type: "nodesLoaded", nodes: r.nodes });
+    } catch {
+      dispatch({ type: "nodesLoaded", nodes: [] });
+    }
+  }, []);
+
+  const loadRuns = useCallback(async () => {
+    try {
+      dispatch({ type: "runsLoaded", runs: await get<CoverageSummary[]>("/api/coverage") });
+    } catch {
+      dispatch({ type: "runsLoaded", runs: [] });
+    }
+  }, []);
+
+  const loadReport = useCallback(async (file: string) => {
+    if (inflight.current.has(file)) return;
+    inflight.current.add(file);
+    try {
+      const report = await get<CoverageReportWithTree>(`/api/coverage/${encodeURIComponent(file)}?tree=1`);
+      dispatch({ type: "reportLoaded", file, report });
+    } catch {
+      /* leave it unloaded — the view shows a loading state */
+    } finally {
+      inflight.current.delete(file);
+    }
+  }, []);
+
+  const toast = useCallback((message: string, kind: "info" | "error" = "info") => {
+    dispatch({ type: "toast", message, kind });
+  }, []);
+
+  // ---- boot --------------------------------------------------------------------------------------
+  useEffect(() => {
+    void loadManifest();
+    void loadNodes();
+    void loadRuns();
+    const fromHash = hashView();
+    if (fromHash) dispatch({ type: "setView", view: fromHash });
+    try {
+      const saved = window.localStorage.getItem("kb-theme");
+      if (saved === "dark" || saved === "light") dispatch({ type: "setTheme", theme: saved });
+    } catch {
+      /* ignore */
+    }
+  }, [loadManifest, loadNodes, loadRuns]);
+
+  // Ensure the reports we need (newest for the overlay, plus A/B) are loaded.
+  useEffect(() => {
+    const wanted = new Set<string>();
+    const newest = state.runs[0]?.file;
+    if (newest) wanted.add(newest);
+    if (state.runA) wanted.add(state.runA);
+    if (state.runB) wanted.add(state.runB);
+    for (const file of wanted) if (!state.reports[file]) void loadReport(file);
+  }, [state.runs, state.runA, state.runB, state.reports, loadReport]);
+
+  // Toast auto-dismiss.
+  useEffect(() => {
+    if (!state.toast) return;
+    const id = window.setTimeout(() => dispatch({ type: "dismissToast" }), 2600);
+    return () => window.clearTimeout(id);
+  }, [state.toast]);
+
+  // Theme: stamp the root + persist.
+  useEffect(() => {
+    if (state.theme) {
+      document.documentElement.setAttribute("data-theme", state.theme);
+      try {
+        window.localStorage.setItem("kb-theme", state.theme);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [state.theme]);
+
+  // Hash ↔ view sync.
+  useEffect(() => {
+    const target = `#${state.view}`;
+    if (window.location.hash !== target) window.location.hash = target;
+  }, [state.view]);
+  useEffect(() => {
+    const onHash = (): void => {
+      const v = hashView();
+      if (v) dispatch({ type: "setView", view: v });
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  // ---- derived -----------------------------------------------------------------------------------
+  const newestFile = state.runs[0]?.file;
+  const newestReport = newestFile ? state.reports[newestFile] : undefined;
+  const index = useMemo(() => statusIndex(newestReport), [newestReport]);
+  const hasCoverage = !!newestReport;
+  const levels = state.manifest?.levels ?? [];
+
+  const defaultNewPath = (): string[] => {
+    if (state.selectedPath.length) return state.selectedPath;
+    const top = state.nodes.find((n) => n.path.length === 1);
+    return top ? top.path : [];
+  };
+
+  // ---- topic handlers ----------------------------------------------------------------------------
+  const onNewTopic = (kind: Kind): void => dispatch({ type: "openEditorNew", kind, path: defaultNewPath() });
+
+  const onOpenTopic = (topic: Topic): void => {
+    if (state.editor?.dirty && !window.confirm("Discard unsaved changes?")) return;
+    dispatch({ type: "openEditorEdit", topic });
+  };
+
+  const onCloseEditor = (): void => {
+    if (state.editor?.dirty && !window.confirm("Discard unsaved changes?")) return;
+    dispatch({ type: "closeEditor" });
+  };
+
+  const saveTopic = async (): Promise<void> => {
+    const e = state.editor;
+    if (!e) return;
+    const errs = validateEditor(e);
+    if (errs.length) {
+      dispatch({ type: "editorError", error: errs.join("\n") });
+      return;
+    }
+    const topic = editorTopic(e);
+    const body = editorMoved(e) && e.original ? { topic, previous: e.original } : { topic };
+    try {
+      await post("/api/topics", body);
+      toast(`saved ${topic.id}`);
+      await Promise.all([loadManifest(), loadNodes()]);
+      dispatch({ type: "openEditorEdit", topic }); // reopen clean, now as an edit
+    } catch (err) {
+      dispatch({ type: "editorError", error: errMsg(err) });
+    }
+  };
+
+  const deleteTopic = async (): Promise<void> => {
+    const e = state.editor;
+    if (!e?.original) return;
+    if (!window.confirm(`Delete ${e.original.id}?`)) return;
+    try {
+      await del(`/api/topics/${encodeRef(...e.original.path, e.original.id)}`);
+      toast(`deleted ${e.original.id}`);
+      dispatch({ type: "closeEditor" });
+      await Promise.all([loadManifest(), loadNodes()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  // ---- node handlers -----------------------------------------------------------------------------
+  const createNode = async (path: string[]): Promise<void> => {
+    try {
+      await post("/api/nodes", { path });
+      toast(`created ${path.join("/")}`);
+      await loadNodes();
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const renameNode = async (from: string[], to: string[]): Promise<void> => {
+    try {
+      await put(`/api/nodes/${encodeRef(...from)}`, { to });
+      toast(`${from.join("/")} → ${to.join("/")}`);
+      if (state.selectedPath.join("/").startsWith(from.join("/"))) dispatch({ type: "selectPath", path: [] });
+      await Promise.all([loadNodes(), loadManifest()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const deleteNode = async (path: string[], hasTopics: boolean): Promise<void> => {
+    const q = hasTopics
+      ? `Delete node "${path.join("/")}" and its topics? This removes the topic files.`
+      : `Delete empty node "${path.join("/")}"?`;
+    if (!window.confirm(q)) return;
+    try {
+      await del(`/api/nodes/${encodeRef(...path)}${hasTopics ? "?cascade=1" : ""}`);
+      toast(`deleted ${path.join("/")}`);
+      if (state.selectedPath.join("/").startsWith(path.join("/"))) dispatch({ type: "selectPath", path: [] });
+      await Promise.all([loadNodes(), loadManifest()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  // ---- meta handlers -----------------------------------------------------------------------------
+  const saveMeta = async (id: string, version: string, subject: string, metaLevels: string[]): Promise<void> => {
+    try {
+      // The server clears the subject when sent "", so an empty box unsets it.
+      await put("/api/meta", { id, version, subject, levels: metaLevels });
+      toast("saved identity");
+      await loadManifest();
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const exportManifest = async (): Promise<void> => {
+    try {
+      const r = await post<{ topics: number }>("/api/export", {});
+      toast(`wrote manifest.yaml (${String(r.topics)} topics)`);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  // ---- render ------------------------------------------------------------------------------------
+  return (
+    <div className="app">
+      <Header
+        view={state.view}
+        manifest={state.manifest}
+        theme={state.theme}
+        dispatch={dispatch}
+        onSaveMeta={(id, version, subject, lv) => void saveMeta(id, version, subject, lv)}
+        onExport={() => void exportManifest()}
+      />
+
+      <div className={`body${state.view === "coverage" ? " cov" : ""}`}>
+        {state.view === "author" ? (
+          <>
+            <PathTree
+              nodes={state.nodes}
+              manifest={state.manifest}
+              index={index}
+              hasCoverage={hasCoverage}
+              selectedPath={state.selectedPath}
+              collapsed={state.collapsed}
+              dispatch={dispatch}
+              onCreateNode={(p) => void createNode(p)}
+              onRenameNode={(f, t) => void renameNode(f, t)}
+              onDeleteNode={(p, h) => void deleteNode(p, h)}
+            />
+            <main className="workspace">
+              <TopicList
+                manifest={state.manifest}
+                manifestError={state.manifestError}
+                index={index}
+                hasCoverage={hasCoverage}
+                selectedPath={state.selectedPath}
+                query={state.query}
+                kindFilter={state.kindFilter}
+                statusFilter={state.statusFilter}
+                dispatch={dispatch}
+                onNewTopic={onNewTopic}
+                onOpenTopic={onOpenTopic}
+              />
+            </main>
+          </>
+        ) : (
+          <main className="workspace">
+            <CoverageView runs={state.runs} runA={state.runA} runB={state.runB} reports={state.reports} dispatch={dispatch} />
+          </main>
+        )}
+      </div>
+
+      {state.editor ? (
+        <EditorSheet
+          editor={state.editor}
+          nodes={state.nodes}
+          levels={levels}
+          index={index}
+          hasCoverage={hasCoverage}
+          dispatch={dispatch}
+          onSave={() => void saveTopic()}
+          onClose={onCloseEditor}
+          onDelete={() => void deleteTopic()}
+        />
+      ) : null}
+
+      <Toast toast={state.toast} />
+    </div>
+  );
+}
