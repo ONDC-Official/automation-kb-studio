@@ -22,6 +22,8 @@ export interface Manifest {
   subject?: string;
   levels?: string[];
   topics: Topic[];
+  /** topicKey (`[...path, id].join("/")`) → content hash, the optimistic-concurrency token per topic. */
+  versions?: Record<string, string>;
 }
 
 export type TopicStatus =
@@ -120,4 +122,90 @@ export interface DeletedEntry {
 export interface HistoryData {
   commits: HistoryEntry[];
   deletions: DeletedEntry[];
+}
+
+/** `GET /api/whoami` — the signed-in user, the workspace they work in, and whether review is available. */
+export interface Identity {
+  actor: { name: string; email: string };
+  /** The workspace the user works in: `"main"` (admin/viewer) or their personal slug (author). */
+  workspace: string;
+  role: string;
+  scopes: string[][];
+  review: boolean;
+}
+
+/** A topic snapshot carried on a change (the author's or main's copy). */
+export interface ChangeSnapshot {
+  key: string;
+  path: string[];
+  id: string;
+  title: string;
+  kind: Kind;
+  questions: string[];
+  hash: string;
+}
+
+/** One topic-level change in a proposal or a sync conflict. */
+export interface Change {
+  key: string;
+  class: "add" | "edit" | "delete" | "conflict";
+  conflictKind?: "edit/edit" | "add/add" | "delete/edit" | "edit/delete";
+  path: string[];
+  title: string;
+  mine: ChangeSnapshot | null; // null = the author deleted it
+  theirs: ChangeSnapshot | null; // null = absent on main
+}
+
+/** A proposal card in the review queue (`GET /api/proposals`). The id IS the workspace slug. */
+export interface Proposal {
+  id: string;
+  workspace: string;
+  author: string;
+  authorName: string;
+  state: "requested";
+  createdAt: string | null;
+  note: string | null;
+  changes: { added: number; edited: number; deleted: number; conflicted: number };
+}
+
+/** The full live diff for one proposal (`GET /api/proposals/<id>`), for the admin review view. */
+export interface ProposalDetail {
+  workspace: string;
+  author: string;
+  authorName: string;
+  changes: Change[];
+}
+
+/** `POST /api/sync` — a superset of the old `{merged,conflicted}` plus the conflicts to resolve. */
+export interface SyncResult {
+  merged: number;
+  conflicted: number;
+  pulled: number;
+  conflicts: Change[];
+}
+
+/** `GET /api/access` — the access policy the Admin page edits. `configured:false` = open mode. */
+export interface AccessPolicyView {
+  configured: boolean;
+  admins: string[];
+  users: { email: string; scopes: string[][] }[];
+  defaultScopes: string[][];
+}
+
+/** One author workspace row in the admin overview. */
+export interface WorkspaceInfo {
+  workspace: string;
+  owner: string | null;
+  ownerName: string | null;
+  updatedAt: string;
+  reviewStatus: "none" | "requested";
+}
+
+/** `GET /api/admin/overview` — deployment mode + the author workspaces (Admin: Users & Activity, Status). */
+export interface AdminOverview {
+  mode: "single" | "multi";
+  reviewEnabled: boolean;
+  accessConfigured: boolean;
+  kbAdmins: string[];
+  workspaces: WorkspaceInfo[];
 }

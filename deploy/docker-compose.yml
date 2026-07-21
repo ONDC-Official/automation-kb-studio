@@ -1,0 +1,81 @@
+# KB Studio — production stack: Caddy (TLS) -> oauth2-proxy (SSO) -> studio (node) -> MongoDB.
+#
+# Trust boundary: ONLY Caddy publishes ports (80/443). `studio` and `auth` are reachable only on the
+# internal Docker network, so the trusted identity header can't be spoofed from outside. Run from this
+# directory: `docker compose --env-file .env up -d --build`.
+#
+# Mongo: by default the studio talks to a mongod already running on the EC2 host (via host.docker.internal).
+# To run Mongo inside the stack instead, add the `with-mongo` profile:
+#   docker compose --env-file .env --profile with-mongo up -d --build
+# and set MONGODB_URI=mongodb://mongo:27017 in `.env`.
+services:
+  studio:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      KB_MULTI_USER: "1"
+      MONGODB_URI: ${MONGODB_URI:-mongodb://host.docker.internal:27017} # the KB store (Mongo)
+      KB_DB_NAME: ${KB_DB_NAME:-kb_studio}
+      KB_ADMINS: ${KB_ADMINS} # admin emails to seed on first boot (the access policy then governs)
+      KB_DIR: /app/kb # the YAML seed KB, imported into Mongo on first boot (empty-store only)
+    # Reach a mongod running on the EC2 host from inside the container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "4319" # internal only — never published to the host
+    restart: unless-stopped
+
+  # Optional: run Mongo inside the stack (profile `with-mongo`). Otherwise use the host's mongod.
+  mongo:
+    image: mongo:7
+    profiles: ["with-mongo"]
+    volumes:
+      - mongo-data:/data/db # the durable KB store — put this on a durable EBS volume
+    expose:
+      - "27017"
+    restart: unless-stopped
+
+  auth:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    depends_on:
+      - studio
+    command:
+      - --http-address=0.0.0.0:4180
+      - --reverse-proxy=true # trust X-Forwarded-* from Caddy in front
+      - --upstream=http://studio:4319 # proxy authenticated requests to the studio
+      - --provider=github # swap to `google` (+ --oidc-issuer-url) for Google Workspace
+      # No --github-org restriction: anyone who can sign in becomes a read-only VIEWER by default; an
+      # admin grants write scopes from the Admin page. Add --github-org=<org> to restrict who can sign in.
+      - --email-domain=* # or lock to your domain, e.g. yourcompany.com
+      - --cookie-secure=true
+      - --pass-user-headers=true # injects X-Forwarded-Email / X-Forwarded-User to the studio
+      - --set-xauthrequest=true
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET} # 32 bytes: `openssl rand -base64 32`
+      OAUTH2_PROXY_REDIRECT_URL: https://${KB_HOST}/oauth2/callback
+    expose:
+      - "4180"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - auth
+    ports:
+      - "80:80" # ACME HTTP challenge
+      - "443:443" # HTTPS — the only public entrypoint
+    environment:
+      KB_HOST: ${KB_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  caddy-data:
+  caddy-config:

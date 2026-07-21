@@ -13,6 +13,7 @@ import {
   emptyHealth,
   groupByPath,
   healthOf,
+  inScope,
   pathKey,
   topicKey,
   visibleTopics,
@@ -82,6 +83,10 @@ export function TopicList(props: {
   editors: EditorState[];
   onCloseEditor: (eid: string) => void;
   onDeleteEditor: (eid: string) => void;
+  onKeepMine: (eid: string) => void;
+  onTakeTheirs: (eid: string) => void;
+  /** The user's write scopes (path-prefixes); `[[]]` = root = everything (admin / open mode). */
+  scopes: string[][];
 }): React.JSX.Element {
   const { manifest, dispatch, editors } = props;
   const filters: Filters = { query: props.query, kind: props.kindFilter, status: props.statusFilter };
@@ -113,9 +118,12 @@ export function TopicList(props: {
       editor={ed}
       index={props.index}
       hasCoverage={props.hasCoverage}
+      canDelete={inScope(ed.path, props.scopes)}
       dispatch={dispatch}
       onClose={() => props.onCloseEditor(ed.eid)}
       onDelete={() => props.onDeleteEditor(ed.eid)}
+      onKeepMine={() => props.onKeepMine(ed.eid)}
+      onTakeTheirs={() => props.onTakeTheirs(ed.eid)}
     />
   );
 

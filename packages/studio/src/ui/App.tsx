@@ -5,8 +5,8 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
-import { del, encodeRef, get, post, put } from "./api";
-import { statusIndex, topicRefFromFile } from "./derive";
+import { del, encodeRef, get, post, put, type ApiError } from "./api";
+import { statusIndex, topicKey, topicRefFromFile } from "./derive";
 import {
   editorMoved,
   editorTopic,
@@ -16,19 +16,27 @@ import {
   type View,
 } from "./state";
 import type {
+  AccessPolicyView,
+  AdminOverview,
   CoverageReportWithTree,
   CoverageSummary,
   DeletedEntry,
   HistoryData,
+  Identity,
   Kind,
   Manifest,
   NodeInfo,
+  Proposal,
+  ProposalDetail,
+  SyncResult,
   Topic,
 } from "./types";
+import { AdminView, type AccessDraft } from "./components/AdminView";
 import { CoverageView } from "./components/CoverageView";
 import { Header } from "./components/Header";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { PathTree } from "./components/PathTree";
+import { ProposalsPanel } from "./components/ProposalsPanel";
 import { Toast } from "./components/Toast";
 import { TopicList } from "./components/TopicList";
 
@@ -36,7 +44,7 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
 
 function hashView(): View | null {
   const h = window.location.hash.replace(/^#/, "").split("/")[0];
-  return h === "coverage" || h === "author" ? h : null;
+  return h === "coverage" || h === "author" || h === "admin" ? h : null;
 }
 
 export function App(): React.JSX.Element {
@@ -99,11 +107,50 @@ export function App(): React.JSX.Element {
     void loadHistory();
   }, [loadHistory]);
 
+  const loadWhoami = useCallback(async () => {
+    try {
+      dispatch({ type: "identityLoaded", identity: await get<Identity>("/api/whoami") });
+    } catch {
+      /* whoami is best-effort chrome — leave identity null (single-user shows no chip) */
+    }
+  }, []);
+
+  const loadProposals = useCallback(async () => {
+    try {
+      const r = await get<{ proposals: Proposal[] }>("/api/proposals");
+      dispatch({ type: "proposalsLoaded", proposals: r.proposals });
+    } catch {
+      dispatch({ type: "proposalsLoaded", proposals: [] });
+    }
+  }, []);
+
+  const openProposals = useCallback(() => {
+    dispatch({ type: "setProposalsOpen", open: true });
+    void loadProposals();
+  }, [loadProposals]);
+
+  const loadAccess = useCallback(async () => {
+    try {
+      dispatch({ type: "accessLoaded", access: await get<AccessPolicyView>("/api/access") });
+    } catch {
+      /* non-admin / not available — the Admin tab is admin-gated, so this is best-effort chrome */
+    }
+  }, []);
+
+  const loadOverview = useCallback(async () => {
+    try {
+      dispatch({ type: "overviewLoaded", overview: await get<AdminOverview>("/api/admin/overview") });
+    } catch {
+      /* best-effort */
+    }
+  }, []);
+
   // ---- boot --------------------------------------------------------------------------------------
   useEffect(() => {
     void loadManifest();
     void loadNodes();
     void loadRuns();
+    void loadWhoami();
     const fromHash = hashView();
     if (fromHash) dispatch({ type: "setView", view: fromHash });
     try {
@@ -112,7 +159,7 @@ export function App(): React.JSX.Element {
     } catch {
       /* ignore */
     }
-  }, [loadManifest, loadNodes, loadRuns]);
+  }, [loadManifest, loadNodes, loadRuns, loadWhoami]);
 
   // Ensure the reports we need (newest for the overlay, plus A/B) are loaded.
   useEffect(() => {
@@ -157,6 +204,19 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Admin view: load its data on entry; a non-admin who lands on #admin is bounced out (the tab is
+  // already hidden for them, so this only catches a hand-typed hash).
+  useEffect(() => {
+    if (state.view !== "admin") return;
+    if (state.identity && state.identity.role !== "admin") {
+      dispatch({ type: "setView", view: "author" });
+      return;
+    }
+    void loadAccess();
+    void loadOverview();
+    void loadProposals();
+  }, [state.view, state.identity, loadAccess, loadOverview, loadProposals]);
+
   // ---- derived -----------------------------------------------------------------------------------
   const newestFile = state.runs[0]?.file;
   const newestReport = newestFile ? state.reports[newestFile] : undefined;
@@ -182,20 +242,30 @@ export function App(): React.JSX.Element {
   const flushSave = useCallback(
     async (eid: string): Promise<void> => {
       const e = stateRef.current.editors[eid];
-      if (!e || e.saving || validateEditor(e).length) return;
+      // Never autosave over an unresolved conflict — the user must pick Keep mine / Take theirs first.
+      if (!e || e.saving || e.conflict || validateEditor(e).length) return;
       const topic = editorTopic(e);
       const payload = JSON.stringify(topic);
       if (savedPayload.current.get(eid) === payload) return; // nothing new since the last good save
-      const body = editorMoved(e) && e.original ? { topic, previous: e.original } : { topic };
+      const body: Record<string, unknown> = { topic };
+      if (editorMoved(e) && e.original) body["previous"] = e.original;
+      if (e.baseVersion) body["baseVersion"] = e.baseVersion; // optimistic-concurrency token
       dispatch({ type: "editorSaving", eid, saving: true });
       try {
-        await post("/api/topics", body);
+        const resp = await post<{ version?: string }>("/api/topics", body);
         savedPayload.current.set(eid, payload);
-        dispatch({ type: "editorSaved", eid, identity: { path: topic.path, id: topic.id } });
+        dispatch({ type: "editorSaved", eid, identity: { path: topic.path, id: topic.id }, version: resp.version ?? null });
         await Promise.all([loadManifest(), loadNodes()]);
       } catch (err) {
-        // Remember the doomed payload so we don't hammer the server with an identical write; the error
-        // stays visible and any further edit (a new payload) retries.
+        const ae = err as ApiError;
+        const b = ae.body as { current?: Topic; currentVersion?: string } | undefined;
+        if (ae.status === 409 && b?.current && b.currentVersion) {
+          // Someone else changed this topic. Stop autosaving and surface a conflict banner.
+          savedPayload.current.set(eid, payload);
+          dispatch({ type: "editorConflict", eid, theirs: b.current, theirVersion: b.currentVersion });
+          return;
+        }
+        // Remember the doomed payload so we don't hammer the server; a further edit retries.
         savedPayload.current.set(eid, payload);
         dispatch({ type: "editorError", eid, error: errMsg(err) });
       }
@@ -205,7 +275,7 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     for (const [eid, e] of Object.entries(state.editors)) {
-      if (e.saving || validateEditor(e).length) continue;
+      if (e.saving || e.conflict || validateEditor(e).length) continue; // a conflict pauses autosave until resolved
       const payload = JSON.stringify(editorTopic(e));
       if (savedPayload.current.get(eid) === payload) continue;
       // A just-opened, untouched existing topic is already on disk — seed its baseline and don't
@@ -236,7 +306,23 @@ export function App(): React.JSX.Element {
   // ---- topic handlers ----------------------------------------------------------------------------
   const onNewTopic = (kind: Kind): void => dispatch({ type: "openEditorNew", kind, path: defaultNewPath() });
 
-  const onOpenTopic = (topic: Topic): void => dispatch({ type: "openEditorEdit", topic });
+  const onOpenTopic = (topic: Topic): void =>
+    dispatch({ type: "openEditorEdit", topic, version: state.manifest?.versions?.[topicKey(topic)] ?? null });
+
+  // Conflict resolution: "keep mine" re-bases on the server's copy and lets autosave overwrite it;
+  // "take theirs" replaces the working copy with the server's and marks it already-saved.
+  const keepMine = (eid: string): void => {
+    dispatch({ type: "editorResolveKeepMine", eid });
+    savedPayload.current.delete(eid); // force the autosave loop to re-fire and push my version
+  };
+  const takeTheirs = (eid: string): void => {
+    const e = state.editors[eid];
+    if (!e?.conflict) return;
+    const t = e.conflict.theirs;
+    dispatch({ type: "editorResolveTakeTheirs", eid });
+    // The editor now matches the server, so record that payload as saved (no spurious re-write).
+    savedPayload.current.set(eid, JSON.stringify({ id: t.id, path: t.path, title: t.title, kind: t.kind, questions: t.questions }));
+  };
 
   const onCloseEditor = (eid: string): void => {
     const e = state.editors[eid];
@@ -287,14 +373,23 @@ export function App(): React.JSX.Element {
   };
 
   const deleteNode = async (path: string[], hasTopics: boolean): Promise<void> => {
-    const q = hasTopics
-      ? `Delete node "${path.join("/")}" and its topics? This removes the topic files.`
-      : `Delete empty node "${path.join("/")}"?`;
-    if (!window.confirm(q)) return;
+    const label = path.join("/");
+    let suffix = "";
+    if (hasTopics) {
+      // Type-to-confirm: nuking a populated subtree needs the exact node path (echoed to the server too).
+      const typed = window.prompt(`This deletes node "${label}" and ALL its topics. Type the node path to confirm:`, "");
+      if (typed !== label) {
+        if (typed !== null) toast("name didn't match — nothing deleted", "error");
+        return;
+      }
+      suffix = `?cascade=1&confirm=${encodeURIComponent(label)}`;
+    } else if (!window.confirm(`Delete empty node "${label}"?`)) {
+      return;
+    }
     try {
-      await del(`/api/nodes/${encodeRef(...path)}${hasTopics ? "?cascade=1" : ""}`);
-      toast(`deleted ${path.join("/")}`);
-      if (state.selectedPath.join("/").startsWith(path.join("/"))) dispatch({ type: "selectPath", path: [] });
+      await del(`/api/nodes/${encodeRef(...path)}${suffix}`);
+      toast(`deleted ${label}`);
+      if (state.selectedPath.join("/").startsWith(label)) dispatch({ type: "selectPath", path: [] });
       await Promise.all([loadNodes(), loadManifest()]);
     } catch (err) {
       toast(errMsg(err), "error");
@@ -334,6 +429,88 @@ export function App(): React.JSX.Element {
     }
   };
 
+  // ---- review handlers ---------------------------------------------------------------------------
+  const submitForReview = async (note?: string): Promise<void> => {
+    try {
+      await post<Proposal>("/api/proposals", note ? { note } : {});
+      toast("submitted for review");
+      await loadProposals();
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const withdrawProposal = async (): Promise<void> => {
+    try {
+      await del("/api/proposals");
+      toast("withdrew your proposal");
+      await loadProposals();
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const syncWithMain = async (): Promise<void> => {
+    try {
+      const r = await post<SyncResult>("/api/sync", {});
+      if (r.conflicts.length) {
+        dispatch({ type: "syncConflictsLoaded", conflicts: r.conflicts });
+        toast(`synced — ${String(r.conflicts.length)} conflict(s) to resolve`, "error");
+      } else {
+        toast(r.pulled ? `synced with main (${String(r.pulled)} update${r.pulled === 1 ? "" : "s"})` : "already up to date with main");
+      }
+      await Promise.all([loadManifest(), loadNodes()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const resolveSyncConflict = async (key: string, choose: "mine" | "theirs"): Promise<void> => {
+    try {
+      await post("/api/sync/resolve", { key, choose });
+      dispatch({ type: "resolveSyncConflict", key });
+      await Promise.all([loadManifest(), loadNodes()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const loadProposalDetail = useCallback(async (id: string): Promise<void> => {
+    try {
+      dispatch({ type: "proposalDetailLoaded", id, detail: await get<ProposalDetail>(`/api/proposals/${encodeURIComponent(id)}`) });
+    } catch {
+      /* best-effort — the row just won't expand */
+    }
+  }, []);
+
+  const mergeProposal = async (id: string): Promise<void> => {
+    try {
+      await post(`/api/proposals/${encodeURIComponent(id)}/merge`, {});
+      toast(`merged ${id}`);
+      await Promise.all([loadProposals(), loadManifest(), loadNodes()]);
+    } catch (err) {
+      const ae = err as ApiError;
+      const b = ae.body as { conflicts?: unknown[] } | undefined;
+      if (ae.status === 409 && Array.isArray(b?.conflicts)) {
+        toast(`cannot merge — ${String(b.conflicts.length)} conflict(s); the author must sync + resolve first`, "error");
+      } else {
+        toast(errMsg(err), "error");
+      }
+    }
+  };
+
+  // ---- admin handlers ----------------------------------------------------------------------------
+  const saveAccess = async (draft: AccessDraft): Promise<void> => {
+    try {
+      await put("/api/access", draft);
+      toast("saved access policy");
+      // Reload the policy + overview, and whoami (the caller's own role may have changed).
+      await Promise.all([loadAccess(), loadOverview(), loadWhoami()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
   // ---- render ------------------------------------------------------------------------------------
   return (
     <div className="app">
@@ -346,9 +523,11 @@ export function App(): React.JSX.Element {
         onSaveMeta={(id, version, subject, lv) => void saveMeta(id, version, subject, lv)}
         onExport={() => void exportManifest()}
         onOpenHistory={openHistory}
+        identity={state.identity}
+        onOpenProposals={openProposals}
       />
 
-      <div className={`body${state.view === "coverage" ? " cov" : ""}`}>
+      <div className={`body${state.view !== "author" ? " cov" : ""}`}>
         {state.view === "author" ? (
           <>
             <PathTree
@@ -362,6 +541,7 @@ export function App(): React.JSX.Element {
               onCreateNode={(p) => void createNode(p)}
               onRenameNode={(f, t) => void renameNode(f, t)}
               onDeleteNode={(p, h) => void deleteNode(p, h)}
+              scopes={state.identity?.scopes ?? [[]]}
             />
             <main className="workspace">
               <TopicList
@@ -379,12 +559,29 @@ export function App(): React.JSX.Element {
                 editors={Object.values(state.editors)}
                 onCloseEditor={onCloseEditor}
                 onDeleteEditor={(eid) => void deleteTopic(eid)}
+                onKeepMine={keepMine}
+                onTakeTheirs={takeTheirs}
+                scopes={state.identity?.scopes ?? [[]]}
               />
             </main>
           </>
-        ) : (
+        ) : state.view === "coverage" ? (
           <main className="workspace">
             <CoverageView runs={state.runs} runA={state.runA} runB={state.runB} reports={state.reports} levels={state.manifest?.levels ?? []} dispatch={dispatch} />
+          </main>
+        ) : (
+          <main className="workspace">
+            <AdminView
+              identity={state.identity}
+              access={state.access}
+              overview={state.overview}
+              proposals={state.proposals}
+              nodes={state.nodes}
+              manifest={state.manifest}
+              onSaveAccess={(draft) => void saveAccess(draft)}
+              onSaveMeta={(id, version, subject, lv) => void saveMeta(id, version, subject, lv)}
+              onExport={() => void exportManifest()}
+            />
           </main>
         )}
       </div>
@@ -394,6 +591,23 @@ export function App(): React.JSX.Element {
           data={state.history}
           onRestore={(entry) => void restoreTopic(entry)}
           onClose={() => dispatch({ type: "setHistoryOpen", open: false })}
+        />
+      )}
+
+      {state.proposalsOpen && (
+        <ProposalsPanel
+          identity={state.identity}
+          proposals={state.proposals}
+          details={state.proposalDetails}
+          syncConflicts={state.syncConflicts}
+          onSubmit={(note) => void submitForReview(note)}
+          onWithdraw={() => void withdrawProposal()}
+          onSync={() => void syncWithMain()}
+          onResolve={(key, choose) => void resolveSyncConflict(key, choose)}
+          onDismissConflicts={() => dispatch({ type: "clearSyncConflicts" })}
+          onExpand={(id) => void loadProposalDetail(id)}
+          onMerge={(id) => void mergeProposal(id)}
+          onClose={() => dispatch({ type: "setProposalsOpen", open: false })}
         />
       )}
 
