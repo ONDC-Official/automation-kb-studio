@@ -24,8 +24,9 @@ so the trusted identity header cannot be spoofed from outside.
    - Note the **Client ID** and **Client Secret**.
 2. **Your admin emails** (seeded on first boot; they then govern access from the Admin page) — e.g.
    `alice@yourcompany.com`.
-3. **MongoDB**. Either run a mongod on the EC2 host (the default), or let the stack run one for you
-   (the `with-mongo` compose profile). A **standalone** mongod is fine — no replica set required.
+3. **Durable Docker storage**. MongoDB runs in the Compose stack by default; ensure Docker's data
+   directory is backed by the EC2's durable EBS volume. A standalone mongod is sufficient — no replica
+   set is required.
 
 GitHub is only the SSO identity provider now — there is no KB git repo, no server token, and no PRs.
 
@@ -52,10 +53,7 @@ cp .env.example .env
 nano .env          # fill in KB_HOST, MONGODB_URI, KB_DB_NAME, KB_ADMINS,
                    # OAUTH_CLIENT_ID/SECRET, OAUTH_COOKIE_SECRET (openssl rand -base64 32)
 
-# Use the host's mongod (default MONGODB_URI=mongodb://host.docker.internal:27017):
 docker compose --env-file .env up -d --build
-# …or run Mongo inside the stack (set MONGODB_URI=mongodb://mongo:27017 first):
-docker compose --env-file .env --profile with-mongo up -d --build
 
 docker compose logs -f            # watch it import the seed KB on first boot; Caddy fetches a cert
 ```
@@ -94,8 +92,8 @@ themselves scope — a change requires an admin.
 
 ## 6. Backups & durability
 
-- **All state is in MongoDB.** Point the Mongo data directory at the **EBS volume** and enable scheduled
-  EBS snapshots, or use `mongodump` on a cron. The revision log has a TTL (`KB_HISTORY_TTL_DAYS`,
+- **All state is in MongoDB.** Ensure Docker's `mongo-data` volume is on the **EBS volume** and enable
+  scheduled EBS snapshots, or use `mongodump` on a cron. The revision log has a TTL (`KB_HISTORY_TTL_DAYS`,
   default 365) so it self-prunes.
 - The studio container is **stateless** — rebuild/replace it freely without touching data.
 

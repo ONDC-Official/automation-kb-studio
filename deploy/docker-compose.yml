@@ -4,10 +4,7 @@
 # internal Docker network, so the trusted identity header can't be spoofed from outside. Run from this
 # directory: `docker compose --env-file .env up -d --build`.
 #
-# Mongo: by default the studio talks to a mongod already running on the EC2 host (via host.docker.internal).
-# To run Mongo inside the stack instead, add the `with-mongo` profile:
-#   docker compose --env-file .env --profile with-mongo up -d --build
-# and set MONGODB_URI=mongodb://mongo:27017 in `.env`.
+# MongoDB runs inside this stack and persists in the named `mongo-data` volume.
 services:
   studio:
     build:
@@ -15,23 +12,19 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       KB_MULTI_USER: "1"
-      MONGODB_URI: ${MONGODB_URI:-mongodb://host.docker.internal:27017} # the KB store (Mongo)
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017} # the internal KB store
       KB_DB_NAME: ${KB_DB_NAME:-kb_studio}
       KB_ADMINS: ${KB_ADMINS} # admin emails to seed on first boot (the access policy then governs)
       KB_DIR: /app/kb # the YAML seed KB, imported into Mongo on first boot (empty-store only)
-    # Reach a mongod running on the EC2 host from inside the container.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     expose:
       - "4319" # internal only — never published to the host
     restart: unless-stopped
 
-  # Optional: run Mongo inside the stack (profile `with-mongo`). Otherwise use the host's mongod.
+  # Internal MongoDB for the KB store. Its named volume survives image/container replacement.
   mongo:
     image: mongo:7
-    profiles: ["with-mongo"]
     volumes:
-      - mongo-data:/data/db # the durable KB store — put this on a durable EBS volume
+      - mongo-data:/data/db # place Docker data on durable EBS storage
     expose:
       - "27017"
     restart: unless-stopped
