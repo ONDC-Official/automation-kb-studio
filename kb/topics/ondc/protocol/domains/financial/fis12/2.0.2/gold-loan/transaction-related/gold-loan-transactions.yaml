@@ -1,0 +1,19 @@
+# Real topic — a genuine topic the source SHOULD be able to answer. Equivalent phrasings: the
+# coverage probe asks up to `paraphrases` (default 3) and cross-checks the answers, so vary the
+# wording, not the meaning.
+id: gold-loan-transactions
+path:
+  - ondc
+  - protocol
+  - domains
+  - financial
+  - fis12
+  - "2.0.2"
+  - gold-loan
+  - transaction-related
+title: 'ONDC:FIS12 2.0.2 — GOLD LOAN transactions'
+kind: real
+questions:
+  - 'What is the transaction flow for the GOLD LOAN use case in ONDC:FIS12 version 2.0.2?'
+  - 'How does the transaction flow work for the GOLD LOAN use case in ONDC:FIS12 version 2.0.2?'
+  - 'What are the transaction steps for the GOLD LOAN use case in ONDC:FIS12 version 2.0.2?'
