@@ -4,7 +4,7 @@
  * (regenerates the committed manifest.yaml). Shared by the Header's "Manifest ▾" disclosure and the
  * Admin page, so both edit identity through one form.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { suggestLevelLabels } from "../derive";
 import type { Manifest, NodeInfo } from "../types";
@@ -14,12 +14,22 @@ export function MetaForm({
   nodes,
   onSaveMeta,
   onExport,
+  onImport,
 }: {
   manifest: Manifest | null;
   nodes: NodeInfo[];
   onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
+  onImport: (yaml: string) => void;
 }): React.JSX.Element {
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const pickFile = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so re-picking the same file fires onChange again
+    if (file) onImport(await file.text());
+  };
+
   const [id, setId] = useState(manifest?.id ?? "");
   const [version, setVersion] = useState(manifest?.version ?? "");
   const [subject, setSubject] = useState(manifest?.subject ?? "");
@@ -94,12 +104,22 @@ export function MetaForm({
         >
           Save identity
         </button>
-        <button className="btn ghost sm" type="button" style={{ marginLeft: "auto" }} onClick={onExport}>
+        <button className="btn ghost sm" type="button" style={{ marginLeft: "auto" }} onClick={() => fileInput.current?.click()}>
+          Import .yaml
+        </button>
+        <button className="btn ghost sm" type="button" onClick={onExport}>
           Export .yaml
         </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".yaml,.yml,text/yaml,application/x-yaml"
+          style={{ display: "none" }}
+          onChange={(e) => void pickFile(e)}
+        />
       </div>
       <div className="hint" style={{ marginTop: 8 }}>
-        Per-topic files are the source of truth. Export regenerates the committed manifest.yaml snapshot.
+        Export downloads the assembled manifest.yaml; Import loads one back, overwriting topics with a matching path/id.
       </div>
     </>
   );

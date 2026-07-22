@@ -197,6 +197,7 @@ export function AdminView({
   onDenyRequest,
   onSaveMeta,
   onExport,
+  onImport,
 }: {
   identity: Identity | null;
   access: AccessPolicyView | null;
@@ -210,6 +211,7 @@ export function AdminView({
   onDenyRequest: (id: string) => void;
   onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
+  onImport: (yaml: string) => void;
 }): React.JSX.Element {
   const myEmail = identity?.actor.email ?? "";
   return (
@@ -325,7 +327,7 @@ export function AdminView({
 
       <section className="admin-section">
         <h3>Manifest identity</h3>
-        <MetaForm manifest={manifest} nodes={nodes} onSaveMeta={onSaveMeta} onExport={onExport} />
+        <MetaForm manifest={manifest} nodes={nodes} onSaveMeta={onSaveMeta} onExport={onExport} onImport={onImport} />
       </section>
     </div>
   );

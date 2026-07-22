@@ -35,14 +35,14 @@ So this is a from-scratch rebuild that keeps the ideas and raises the engineerin
 
 ## Packages
 
-| package                        | what it is                                                                                   |
-| ------------------------------ | -------------------------------------------------------------------------------------------- |
-| `@evaluator/core`              | The vendor- and domain-neutral library: the `Llm`/`KnowledgeSource`/`Judge` seams, the `Run` event machinery, schema sanitizing, the `SubjectProfile`, and the `coverage`/`validate`/`rollup` probes. Names no model, vendor, or domain. |
-| `@evaluator/provider-openai`   | OpenAI-compatible adapter (LM Studio, vLLM, Ollama, llama.cpp, a hosted API). The only package that may import the OpenAI SDK. |
-| `@evaluator/provider-anthropic`| Anthropic Messages API adapter (structured output via a forced tool call). The only package that may import the Anthropic SDK. |
-| `@evaluator/reporter`          | A sink over the event stream — zero-dep JSONL + pretty console. The engine holds no logger.   |
-| `@evaluator/cli`               | The scripted front-end: `--health`, `--check-schema`, `--coverage`, `--validate`.            |
-| `@evaluator/studio`            | Local browser tool to author the KB folder-first + view/compare coverage (node:http API + Vite/React UI). |
+| package                         | what it is                                                                                                                                                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@evaluator/core`               | The vendor- and domain-neutral library: the`Llm`/`KnowledgeSource`/`Judge` seams, the `Run` event machinery, schema sanitizing, the `SubjectProfile`, and the `coverage`/`validate`/`rollup` probes. Names no model, vendor, or domain. |
+| `@evaluator/provider-openai`    | OpenAI-compatible adapter (LM Studio, vLLM, Ollama, llama.cpp, a hosted API). The only package that may import the OpenAI SDK.                                                                                                          |
+| `@evaluator/provider-anthropic` | Anthropic Messages API adapter (structured output via a forced tool call). The only package that may import the Anthropic SDK.                                                                                                          |
+| `@evaluator/reporter`           | A sink over the event stream — zero-dep JSONL + pretty console. The engine holds no logger.                                                                                                                                             |
+| `@evaluator/cli`                | The scripted front-end:`--health`, `--check-schema`, `--coverage`, `--validate`.                                                                                                                                                        |
+| `@evaluator/studio`             | Local browser tool to author the KB folder-first + view/compare coverage (node:http API + Vite/React UI).                                                                                                                               |
 
 ## Quick start
 
@@ -66,7 +66,7 @@ pnpm studio          # author the KB (folder-first) + view coverage in the brows
 
 `pnpm test` requires **no running model**. `pnpm dev` and `pnpm studio` need a backend — set `.env`.
 
-For getting a *trustworthy* signal out of a run — judge/source separation, canary budgeting,
+For getting a _trustworthy_ signal out of a run — judge/source separation, canary budgeting,
 paraphrase counts, and the temperature caveat — see [`docs/best-practices.md`](docs/best-practices.md).
 
 ## Architecture
@@ -100,7 +100,7 @@ chain; `subject` is the only place a KB names its domain.
 ### Testing against liars
 
 Tests run against real `node:http` servers that **lie on demand** — never mocks. The bug this project
-exists to catch *is* a wire behavior (a server accepting a field and ignoring it), and you cannot
+exists to catch _is_ a wire behavior (a server accepting a field and ignoring it), and you cannot
 reproduce a server lying to you by stubbing out the server. The fakes can ignore a schema, abort
 mid-stream, stream without usage, think until they run out of budget, or split a tool call's
 arguments mid-string. Both providers are held to the same suite.

@@ -171,6 +171,56 @@ describe("KB Studio server (Mongo, single-user)", () => {
     expect(parsed.topics.map((t) => t.id).sort()).toEqual(["gen-a", "real-a"]);
   });
 
+  it("GET /api/export streams the manifest.yaml as an attachment download (no server-side write)", async () => {
+    const s = await withSeed();
+    const res = await fetch(`${s.base}/api/export`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("yaml");
+    expect(res.headers.get("content-disposition")).toContain('filename="manifest.yaml"');
+    const parsed = parseManifest(parseYaml(await res.text()));
+    expect(parsed.topics.map((t) => t.id)).toContain("seed-a");
+    expect(existsSync(join(s.exportDir, "manifest.yaml"))).toBe(false); // GET is read-only
+  });
+
+  it("POST /api/import lands a manifest.yaml's topics + identity, overwriting by key and keeping others", async () => {
+    const s = await startStudio({
+      seed: (store) => store.putTopic("main", topic(["protocol"], "keep-me"), { actor: { name: "s", email: "studio@localhost" } }).then(() => undefined),
+    });
+    const yaml = [
+      "id: imported-kb",
+      'version: "9.9"',
+      "subject: the imported domain",
+      "topics:",
+      "  - id: keep-me",
+      "    path: [protocol]",
+      "    title: Overwritten Title",
+      "    kind: real",
+      "    questions: [q1, q2]",
+      "  - id: brand-new",
+      "    path: [retail, search]",
+      "    title: Brand New",
+      "    kind: canary",
+      "    questions: [q1]",
+    ].join("\n");
+
+    const { status, json } = await req<{ topics: number }>(s.base, "POST", "/api/import", { yaml });
+    expect(status).toBe(200);
+    expect(json.topics).toBe(2);
+
+    const manifest = (await req<ManifestResp>(s.base, "GET", "/api/manifest")).json;
+    expect(manifest.id).toBe("imported-kb");
+    expect(manifest.version).toBe("9.9");
+    expect(manifest.subject).toBe("the imported domain");
+    expect(manifest.topics.map((t) => t.id).sort()).toEqual(["brand-new", "keep-me"]);
+  });
+
+  it("POST /api/import rejects unparseable YAML (400) and a schema-invalid manifest (422)", async () => {
+    const s = await startStudio();
+    expect((await req(s.base, "POST", "/api/import", { yaml: "foo: [bar" })).status).toBe(400);
+    expect((await req(s.base, "POST", "/api/import", { yaml: 'id: x\nversion: "1"\ntopics: []' })).status).toBe(422);
+    expect((await req(s.base, "POST", "/api/import", { yaml: "" })).status).toBe(400);
+  });
+
   it("history + restore: a deleted topic is recoverable from Trash", async () => {
     const s = await startStudio({ seed: (store) => store.putTopic("main", topic(["protocol"], "gone"), { actor: { name: "s", email: "studio@localhost" } }).then(() => undefined) });
     await req(s.base, "DELETE", "/api/topics/protocol/gone");

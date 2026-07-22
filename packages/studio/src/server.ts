@@ -20,7 +20,8 @@ import { extname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Mutex } from "async-mutex";
-import { ConfigError, rollup, type CoverageReport, type Topic } from "@evaluator/core";
+import { parse as parseYaml } from "yaml";
+import { ConfigError, parseManifest, rollup, type CoverageReport, type Topic } from "@evaluator/core";
 
 import {
   canWrite,
@@ -208,7 +209,9 @@ async function handleKb(req: IncomingMessage, res: ServerResponse, ctx: Ctx, met
   if (method === "POST" && path === "/api/topics") return await postTopic(req, res, ctx);
   if (method === "DELETE" && path.startsWith("/api/topics/")) return await deleteTopic(req, res, ctx, path);
   if (method === "PUT" && path === "/api/meta") return await putMeta(req, res, ctx);
+  if (method === "GET" && path === "/api/export") return await getExport(req, res, ctx);
   if (method === "POST" && path === "/api/export") return await postExport(req, res, ctx);
+  if (method === "POST" && path === "/api/import") return await postImport(req, res, ctx);
   if (method === "GET" && path === "/api/nodes") return await getNodes(req, res, ctx);
   if (method === "POST" && path === "/api/nodes") return await postNode(req, res, ctx);
   if (method === "PUT" && path.startsWith("/api/nodes/")) return await putNode(req, res, ctx, path);
@@ -380,6 +383,58 @@ async function postExport(req: IncomingMessage, res: ServerResponse, ctx: Ctx): 
   const file = join(ctx.exportDir, "manifest.yaml");
   atomicWrite(file, renderManifestYaml(manifest));
   sendJson(res, 200, { ok: true, path: file, topics: manifest.topics.length });
+}
+
+/** Stream the rendered manifest.yaml as a download (read-only — no server-side write, unlike postExport). */
+async function getExport(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
+  const { ws } = await resolveRead(ctx, req);
+  const manifest = await ctx.store.assembledManifest(ws); // ConfigError → 422
+  res.writeHead(200, {
+    "content-type": "application/x-yaml; charset=utf-8",
+    "content-disposition": 'attachment; filename="manifest.yaml"',
+  });
+  res.end(renderManifestYaml(manifest));
+}
+
+/**
+ * Import a single `manifest.yaml` (the export snapshot) into the caller's workspace: upsert every topic
+ * by key (non-destructive — topics not in the file are kept), and set the manifest identity when the
+ * caller is an admin. The reverse of `postExport`. Each topic path is scope-guarded, so a scoped author
+ * importing a topic outside their scope is refused (403).
+ */
+async function postImport(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
+  const body = await readBody(req);
+  const text = body["yaml"];
+  if (typeof text !== "string" || text.trim() === "") throw new BadRequest("yaml must be a non-empty string");
+  let raw: unknown;
+  try {
+    raw = parseYaml(text);
+  } catch (err) {
+    throw new BadRequest(`could not parse YAML: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const manifest = parseManifest(raw); // ConfigError → 422
+  for (const t of manifest.topics) if (!TOPIC_ID_RE.test(t.id)) throw new BadRequest(`unsafe topic id "${t.id}"`);
+
+  await handleWrite(ctx, req, async (actor, role, policy) => {
+    for (const t of manifest.topics) guardScope(policy, actor, t.path, "import into");
+    const ws = await targetWs(ctx, actor, role);
+
+    if (isAccessAdmin(policy, actor.email)) {
+      const meta: WorkspaceMeta = { id: manifest.id, version: manifest.version };
+      if (manifest.subject) meta.subject = manifest.subject;
+      if (manifest.levels?.length) meta.levels = manifest.levels;
+      await ctx.store.putMeta(ws, meta);
+    }
+    for (const t of manifest.topics) await ctx.store.putTopic(ws, t, { actor });
+
+    await appendRevision(ctx.db, {
+      workspace: ws,
+      actor,
+      action: "import",
+      message: `imported ${String(manifest.topics.length)} topics from manifest.yaml`,
+    });
+    sendJson(res, 200, { ok: true, topics: manifest.topics.length });
+  });
 }
 
 // ---- nodes --------------------------------------------------------------------------------------

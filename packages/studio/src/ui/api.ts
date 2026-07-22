@@ -42,6 +42,28 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+/** GET a non-JSON body (e.g. the manifest.yaml download) as raw text; a non-2xx still throws an `ApiError` from its JSON `{ error }`. */
+export async function getText(path: string): Promise<string> {
+  const res = await fetch(BASE + path);
+  const text = await res.text();
+  if (!res.ok) {
+    let message = res.statusText || `HTTP ${String(res.status)}`;
+    try {
+      const data: unknown = JSON.parse(text);
+      if (typeof data === "object" && data !== null && "error" in data && typeof data.error === "string") {
+        message = data.error;
+      }
+    } catch {
+      /* body wasn't JSON — keep the status-line message */
+    }
+    const err = new Error(message) as ApiError;
+    err.status = res.status;
+    err.body = text;
+    throw err;
+  }
+  return text;
+}
+
 export const get = <T>(path: string): Promise<T> => request<T>("GET", path);
 export const post = <T>(path: string, body: unknown = {}): Promise<T> => request<T>("POST", path, body);
 export const put = <T>(path: string, body: unknown = {}): Promise<T> => request<T>("PUT", path, body);

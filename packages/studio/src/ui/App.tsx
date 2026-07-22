@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
-import { del, encodeRef, get, post, put, type ApiError } from "./api";
+import { del, encodeRef, get, getText, post, put, type ApiError } from "./api";
 import { statusIndex, topicKey, topicRefFromFile } from "./derive";
 import {
   editorMoved,
@@ -537,8 +537,25 @@ export function App(): React.JSX.Element {
 
   const exportManifest = async (): Promise<void> => {
     try {
-      const r = await post<{ topics: number }>("/api/export", {});
-      toast(`wrote manifest.yaml (${String(r.topics)} topics)`);
+      const yaml = await getText("/api/export");
+      const url = URL.createObjectURL(new Blob([yaml], { type: "application/x-yaml" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "manifest.yaml";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("downloaded manifest.yaml");
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const importManifest = async (yaml: string): Promise<void> => {
+    if (!window.confirm("Import this manifest.yaml? Topics with the same path/id are overwritten; existing topics not in the file are kept.")) return;
+    try {
+      const r = await post<{ topics: number }>("/api/import", { yaml });
+      toast(`imported ${String(r.topics)} topics`);
+      await Promise.all([loadManifest(), loadNodes(), loadHistory()]);
     } catch (err) {
       toast(errMsg(err), "error");
     }
@@ -682,6 +699,7 @@ export function App(): React.JSX.Element {
         dispatch={dispatch}
         onSaveMeta={(id, version, subject, lv) => void saveMeta(id, version, subject, lv)}
         onExport={() => void exportManifest()}
+        onImport={(yaml) => void importManifest(yaml)}
         onOpenHistory={openHistory}
         identity={state.identity}
         onOpenProposals={openProposals}
@@ -763,6 +781,7 @@ export function App(): React.JSX.Element {
               onDenyRequest={(id) => void denyAccessRequest(id)}
               onSaveMeta={(id, version, subject, lv) => void saveMeta(id, version, subject, lv)}
               onExport={() => void exportManifest()}
+              onImport={(yaml) => void importManifest(yaml)}
             />
           </main>
         )}

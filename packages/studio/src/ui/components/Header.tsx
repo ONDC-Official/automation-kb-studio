@@ -15,17 +15,19 @@ function IdentityPanel({
   nodes,
   onSaveMeta,
   onExport,
+  onImport,
 }: {
   manifest: Manifest | null;
   nodes: NodeInfo[];
   onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
+  onImport: (yaml: string) => void;
 }): React.JSX.Element {
   return (
     <details className="identity-panel">
       <summary className="btn btn-secondary sm">Manifest ▾</summary>
       <div className="identity-body">
-        <MetaForm manifest={manifest} nodes={nodes} onSaveMeta={onSaveMeta} onExport={onExport} />
+        <MetaForm manifest={manifest} nodes={nodes} onSaveMeta={onSaveMeta} onExport={onExport} onImport={onImport} />
       </div>
     </details>
   );
@@ -39,6 +41,7 @@ export function Header(props: {
   dispatch: Dispatch<Action>;
   onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
+  onImport: (yaml: string) => void;
   onOpenHistory: () => void;
   identity: Identity | null;
   onOpenProposals: () => void;
@@ -83,7 +86,7 @@ export function Header(props: {
               </button>
             ))}
           </div>
-          <IdentityPanel manifest={manifest} nodes={props.nodes} onSaveMeta={props.onSaveMeta} onExport={props.onExport} />
+          <IdentityPanel manifest={manifest} nodes={props.nodes} onSaveMeta={props.onSaveMeta} onExport={props.onExport} onImport={props.onImport} />
           {canRequestAccess && (
             <button
               className="btn btn-secondary sm"
