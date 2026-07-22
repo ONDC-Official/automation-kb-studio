@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { rollup, type CoverageNode, type CoverageReport, type TopicResult, type TopicStatus } from "@evaluator/core";
 
 function topic(path: string[], id: string, kind: "real" | "canary", status: TopicStatus): TopicResult {
-  return { key: [...path, id].join("/"), id, path, title: id, kind, status, agreement: 1, sample: "", detail: "" };
+  return { key: [...path, id].join("/"), id, path, title: id, kind, status, agreement: 1, sample: "", detail: "", probes: [] };
 }
 
 function report(topics: TopicResult[]): CoverageReport {

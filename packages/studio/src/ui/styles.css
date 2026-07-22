@@ -2259,3 +2259,52 @@ select.run {
   gap: 6px;
   align-items: center;
 }
+
+/* --- transcript (what was asked + answered) --------------------------------- */
+.tx-toggle {
+  cursor: pointer;
+}
+.tx-caret {
+  color: var(--color-neutral-500);
+  font-size: 10px;
+  margin-right: 5px;
+}
+.tx-row > td {
+  background: var(--color-neutral-100);
+  padding: 0 !important;
+}
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+}
+.tx-item {
+  border-left: 2px solid var(--color-divider);
+  padding-left: 10px;
+}
+.tx-q {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.tx-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-accent);
+  margin-right: 4px;
+}
+.tx-a {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-neutral-700);
+  white-space: pre-wrap;
+}
+.tx-v {
+  margin-top: 5px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}

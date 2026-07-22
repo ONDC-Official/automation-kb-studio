@@ -19,7 +19,7 @@ import type { Dispatch } from "react";
 import { pct, topicKey } from "../derive";
 import type { Action } from "../state";
 import type { EvalEndpoint, EvalProvider, EvalRunDetail, EvalRunStatus, EvalRunSummary, NodeInfo, ResumeRequest, RunLogEntry, RunRequest, Topic, TopicStatus } from "../types";
-import { StatusPill } from "./common";
+import { StatusPill, Transcript } from "./common";
 import { SingleReport } from "./CoverageView";
 import { ScopeTree } from "./ScopeTree";
 
@@ -197,9 +197,12 @@ function Tally({ log }: { log: RunLogEntry[] }): React.JSX.Element {
 }
 
 function FeedRow({ entry }: { entry: RunLogEntry }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const hasTx = !!entry.probes?.length;
   return (
     <div className="feed-row">
-      <div className="feed-row-top">
+      <div className={`feed-row-top${hasTx ? " tx-toggle" : ""}`} onClick={hasTx ? () => setOpen((o) => !o) : undefined} title={hasTx ? "Show the questions asked and the answers" : undefined}>
+        {hasTx ? <span className="tx-caret">{open ? "▾" : "▸"}</span> : null}
         <StatusPill status={entry.status} />
         <span className="feed-id">{entry.id}</span>
         <span className={`r-kind ${entry.kind}`}>{entry.kind}</span>
@@ -208,7 +211,7 @@ function FeedRow({ entry }: { entry: RunLogEntry }): React.JSX.Element {
         </span>
       </div>
       <div className="feed-detail">{entry.detail}</div>
-      {entry.sample ? <div className="feed-sample">“{entry.sample}”</div> : null}
+      {open && hasTx ? <Transcript probes={entry.probes ?? []} /> : entry.sample ? <div className="feed-sample">“{entry.sample}”</div> : null}
     </div>
   );
 }

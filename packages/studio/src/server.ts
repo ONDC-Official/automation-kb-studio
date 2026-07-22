@@ -190,8 +190,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Prom
     const method = req.method ?? "GET";
 
     if (method === "GET" && path === "/") return serveHtml(res);
-    if (method === "GET" && path === "/api/coverage") return listCoverage(res, ctx.coverageDir);
-    if (method === "GET" && path.startsWith("/api/coverage/")) return getCoverage(req, res, ctx.coverageDir, path);
+    if (method === "GET" && path === "/api/coverage") return await listCoverage(req, res, ctx);
+    if (method === "GET" && path.startsWith("/api/coverage/")) return await getCoverage(req, res, ctx, path);
     if (method === "GET" && !path.startsWith("/api/")) return serveStatic(res, path);
 
     if (path.startsWith("/api/")) return await handleKb(req, res, ctx, method, path);
@@ -703,34 +703,68 @@ function safePath(value: unknown, what: string): string[] {
 }
 
 // ---- coverage (read-only) -----------------------------------------------------------------------
+//
+// The Coverage tab shows BOTH sources of report in one picker: the JSON files the CLI writes into
+// `coverageDir` (shared, unscoped) AND this user's finished dashboard runs from `evalRuns` (scoped to
+// the actor). A dashboard run is referenced by the opaque id `run:<runId>`.
 
-function listCoverage(res: ServerResponse, coverageDir: string): void {
-  if (!existsSync(coverageDir)) return sendJson(res, 200, []);
-  const summaries = readdirSync(coverageDir)
-    .filter((f) => f.endsWith(".json"))
-    .map((file) => {
-      const r = JSON.parse(readFileSync(join(coverageDir, file), "utf8")) as Record<string, unknown>;
-      return {
-        file,
-        generatedAt: typeof r["generatedAt"] === "string" ? r["generatedAt"] : "",
-        manifestId: r["manifestId"] ?? null,
-        manifestVersion: r["manifestVersion"] ?? null,
-        source: r["source"] ?? null,
-        totals: r["totals"] ?? null,
-        metrics: r["metrics"] ?? null,
-      };
-    })
-    .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt) || b.file.localeCompare(a.file));
-  sendJson(res, 200, summaries);
+/** A file-based coverage report summarised for the list. */
+function fileSummary(coverageDir: string, file: string): Record<string, unknown> {
+  const r = JSON.parse(readFileSync(join(coverageDir, file), "utf8")) as Record<string, unknown>;
+  return {
+    file,
+    generatedAt: typeof r["generatedAt"] === "string" ? r["generatedAt"] : "",
+    manifestId: r["manifestId"] ?? null,
+    manifestVersion: r["manifestVersion"] ?? null,
+    source: r["source"] ?? null,
+    totals: r["totals"] ?? null,
+    metrics: r["metrics"] ?? null,
+  };
 }
 
-function getCoverage(req: IncomingMessage, res: ServerResponse, coverageDir: string, path: string): void {
-  const file = decodeURIComponent(path.split("/").filter(Boolean)[2] ?? "");
-  if (!/^[A-Za-z0-9._-]+\.json$/.test(file) || file.includes("..")) throw new BadRequest("bad filename");
-  const p = join(coverageDir, file);
+async function listCoverage(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
+  const { actor } = await resolveRead(ctx, req);
+  const files = existsSync(ctx.coverageDir)
+    ? readdirSync(ctx.coverageDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => fileSummary(ctx.coverageDir, f))
+    : [];
+  // This user's finished dashboard runs, referenced as `run:<id>`.
+  const runs = await ctx.db.evalRuns.find({ actor: actor.email, status: "succeeded" }).sort({ finishedAt: -1 }).limit(100).toArray();
+  const runSummaries = runs.map((d) => ({
+    file: `run:${d._id}`,
+    generatedAt: d.finishedAt?.toISOString() ?? "",
+    manifestId: d.manifestId,
+    manifestVersion: d.manifestVersion,
+    source: `${d.source.provider}:${d.source.model}`,
+    totals: d.report?.totals ?? null,
+    metrics: d.report?.metrics ?? null,
+  }));
+  const all = [...files, ...runSummaries].sort(
+    (a, b) => String(b.generatedAt).localeCompare(String(a.generatedAt)) || String(b.file).localeCompare(String(a.file)),
+  );
+  sendJson(res, 200, all);
+}
+
+async function getCoverage(req: IncomingMessage, res: ServerResponse, ctx: Ctx, path: string): Promise<void> {
+  const ref = decodeURIComponent(path.split("/").filter(Boolean)[2] ?? "");
+  const wantTree = new URL(req.url ?? "", "http://localhost").searchParams.get("tree") === "1";
+
+  // A dashboard run: fetch from Mongo, owner-or-admin only.
+  if (ref.startsWith("run:")) {
+    const { actor, policy } = await resolveRead(ctx, req);
+    const doc = await ctx.db.evalRuns.findOne({ _id: ref.slice(4) });
+    if (!doc?.report) throw new NotFound("no such report");
+    if (doc.actor !== actor.email && !isAccessAdmin(policy, actor.email)) throw new Forbidden("this run belongs to someone else");
+    const report = { ...doc.report, generatedAt: doc.finishedAt?.toISOString() ?? "" };
+    return sendJson(res, 200, wantTree ? { ...report, tree: rollup(doc.report).root } : report);
+  }
+
+  // A file the CLI wrote.
+  if (!/^[A-Za-z0-9._-]+\.json$/.test(ref) || ref.includes("..")) throw new BadRequest("bad filename");
+  const p = join(ctx.coverageDir, ref);
   if (!existsSync(p)) throw new NotFound("no such report");
   const report = JSON.parse(readFileSync(p, "utf8")) as CoverageReport;
-  const wantTree = new URL(req.url ?? "", "http://localhost").searchParams.get("tree") === "1";
   sendJson(res, 200, wantTree ? { ...report, tree: rollup(report).root } : report);
 }
 

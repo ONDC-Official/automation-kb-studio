@@ -101,6 +101,8 @@ export type EventBody =
       agreement: number;
       sample: string;
       detail: string;
+      /** The per-phrasing transcript (question + answer + verdict) — what the source actually said. */
+      probes: { question: string; answer: string; refused: boolean; responsive: boolean; specificity: string }[];
     };
 
 export type HarnessEvent = EventEnvelope & EventBody;

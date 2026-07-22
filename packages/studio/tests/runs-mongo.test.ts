@@ -320,6 +320,46 @@ describe("end-to-end coverage run", () => {
       const detail = await reqAs<{ report: { tree?: unknown; metrics: unknown } | null }>(s.base, ADMIN, "GET", `/api/runs/${id}`);
       expect(detail.json.report?.tree).toBeTruthy();
       expect(detail.json.report?.metrics).toBeTruthy();
+
+      // The report AND the live log carry the per-topic Q&A transcript.
+      const t0 = doc?.report?.topics[0];
+      expect(t0?.probes?.length).toBeGreaterThan(0);
+      expect(typeof t0?.probes?.[0]?.answer).toBe("string");
+      expect(doc?.log[0]?.probes?.length).toBeGreaterThan(0);
+    } finally {
+      fake.close();
+    }
+  }, 20000);
+});
+
+describe("coverage tab shows dashboard runs", () => {
+  it("lists a finished run and serves its report by run:<id>, owner-scoped", async () => {
+    const s = await studioWithKb();
+    const fake = await fakeOpenai();
+    try {
+      const start = await reqAs<{ id: string }>(s.base, ADMIN, "POST", "/api/runs", {
+        source: endpoint(fake.baseUrl, fake.model, "sk"),
+        judge: endpoint(fake.baseUrl, fake.model, "sk-j"),
+      });
+      const id = start.json.id;
+      await waitFor<{ status: string }>(s.base, ADMIN, id, (d) => d.status !== "running");
+
+      // It shows up in the Coverage list as run:<id>.
+      const list = await reqAs<{ file: string }[]>(s.base, ADMIN, "GET", "/api/coverage");
+      expect(list.json.some((e) => e.file === `run:${id}`)).toBe(true);
+
+      // And its report (with tree) is fetchable by that id.
+      const enc = encodeURIComponent(`run:${id}`);
+      const rep = await reqAs<{ topics: unknown[]; tree?: unknown }>(s.base, ADMIN, "GET", `/api/coverage/${enc}?tree=1`);
+      expect(rep.status).toBe(200);
+      expect(Array.isArray(rep.json.topics)).toBe(true);
+      expect(rep.json.tree).toBeTruthy();
+
+      // Another user cannot read it, and it isn't in their list.
+      const forbidden = await reqAs(s.base, VIEWER, "GET", `/api/coverage/${enc}`);
+      expect(forbidden.status).toBe(403);
+      const viewerList = await reqAs<{ file: string }[]>(s.base, VIEWER, "GET", "/api/coverage");
+      expect(viewerList.json.some((e) => e.file === `run:${id}`)).toBe(false);
     } finally {
       fake.close();
     }

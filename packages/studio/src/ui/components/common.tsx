@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 
 import { pct, STATUS_CLASS, type HealthCounts, type MetricDef } from "../derive";
-import type { Metrics, TopicStatus } from "../types";
+import type { Metrics, TopicProbe, TopicStatus } from "../types";
 
 const SEGMENTS: { key: keyof HealthCounts; cls: string }[] = [
   { key: "ok", cls: "m-ok" },
@@ -38,6 +38,26 @@ export function HealthTags({ counts, hasCoverage }: { counts: HealthCounts; hasC
 
 export function StatusPill({ status }: { status: TopicStatus }): React.JSX.Element {
   return <span className={`pill ${STATUS_CLASS[status]}`}>{status}</span>;
+}
+
+/** The per-phrasing transcript: what was asked, what the source actually said, and the judge's verdict. */
+export function Transcript({ probes }: { probes: TopicProbe[] }): React.JSX.Element {
+  return (
+    <div className="transcript">
+      {probes.map((p, i) => (
+        <div className="tx-item" key={i}>
+          <div className="tx-q">
+            <span className="tx-tag">Q{probes.length > 1 ? String(i + 1) : ""}</span> {p.question}
+          </div>
+          <div className="tx-a">{p.refused ? <em>(no answer — the source reported no result)</em> : p.answer}</div>
+          <div className="tx-v">
+            <span className={`pill ${p.responsive ? "s-ok" : "s-muted"}`}>{p.responsive ? "responsive" : "not responsive"}</span>
+            <span className="pill s-none">specificity: {p.specificity}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** A single headline gauge: label, big percentage, and a trace bar. Flags the canary alarm. */

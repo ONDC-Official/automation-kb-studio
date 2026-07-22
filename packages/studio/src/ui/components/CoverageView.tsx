@@ -9,7 +9,7 @@
  *   per-topic status transitions joined by `topicKey`, grouped by path. Framed as tracking coverage &
  *   faithfulness, NOT correctness.
  */
-import type { Dispatch } from "react";
+import { useState, type Dispatch } from "react";
 
 import {
   METRICS,
@@ -22,7 +22,7 @@ import {
 import type { Action } from "../state";
 import type { CoverageReportWithTree, CoverageSummary, TopicResult } from "../types";
 import { CoverageTreeGauges } from "./CoverageTree";
-import { Gauges, StatusPill } from "./common";
+import { Gauges, StatusPill, Transcript } from "./common";
 
 function groupResults(topics: TopicResult[]): { path: string[]; topics: TopicResult[] }[] {
   const sorted = [...topics].sort(
@@ -155,24 +155,45 @@ function ReportGroup({ path, topics }: { path: string[]; topics: TopicResult[] }
         </td>
       </tr>
       {topics.map((tp) => (
-        <tr key={tp.key}>
-          <td>
-            <span className="c-id">{tp.id}</span>
-          </td>
-          <td>
-            {tp.title}
-            {tp.sample ? <div className="c-sample">{tp.sample}</div> : null}
-          </td>
-          <td>
-            <span className={`r-kind ${tp.kind}`}>{tp.kind}</span>
-          </td>
-          <td>
-            <StatusPill status={tp.status} />
-            {tp.detail ? <div className="c-sample">{tp.detail}</div> : null}
-          </td>
-          <td className="agree">{tp.agreement.toFixed(2)}</td>
-        </tr>
+        <ReportRow key={tp.key} tp={tp} />
       ))}
+    </>
+  );
+}
+
+/** One topic row; click to expand the Q&A transcript (what was asked + what the source answered). */
+function ReportRow({ tp }: { tp: TopicResult }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const hasTx = !!tp.probes?.length;
+  return (
+    <>
+      <tr className={hasTx ? "tx-toggle" : undefined} onClick={hasTx ? () => setOpen((o) => !o) : undefined} title={hasTx ? "Show the questions asked and the source's answers" : undefined}>
+        <td>
+          <span className="c-id">
+            {hasTx ? <span className="tx-caret">{open ? "▾" : "▸"}</span> : null}
+            {tp.id}
+          </span>
+        </td>
+        <td>
+          {tp.title}
+          {tp.sample ? <div className="c-sample">{tp.sample}</div> : null}
+        </td>
+        <td>
+          <span className={`r-kind ${tp.kind}`}>{tp.kind}</span>
+        </td>
+        <td>
+          <StatusPill status={tp.status} />
+          {tp.detail ? <div className="c-sample">{tp.detail}</div> : null}
+        </td>
+        <td className="agree">{tp.agreement.toFixed(2)}</td>
+      </tr>
+      {open && hasTx ? (
+        <tr className="tx-row">
+          <td colSpan={5}>
+            <Transcript probes={tp.probes ?? []} />
+          </td>
+        </tr>
+      ) : null}
     </>
   );
 }

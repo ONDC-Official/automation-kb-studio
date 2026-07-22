@@ -34,6 +34,15 @@ export type TopicStatus =
   | "canary-ok"
   | "canary-bit";
 
+/** One phrasing asked of the source and what came back — the transcript behind a topic's status. */
+export interface TopicProbe {
+  question: string;
+  answer: string;
+  refused: boolean;
+  responsive: boolean;
+  specificity: string;
+}
+
 export interface TopicResult {
   key: string;
   id: string;
@@ -44,6 +53,8 @@ export interface TopicResult {
   agreement: number;
   sample: string;
   detail: string;
+  /** The full per-phrasing transcript (may be absent on older reports). */
+  probes?: TopicProbe[];
 }
 
 export interface Metrics {
@@ -144,6 +155,7 @@ export interface RunLogEntry {
   agreement: number;
   sample: string;
   detail: string;
+  probes?: TopicProbe[];
 }
 
 /** A run as the list endpoint returns it — status, progress, headline numbers, but no report/log body. */

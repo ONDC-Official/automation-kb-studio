@@ -163,6 +163,15 @@ export interface RunCurrent {
   title: string;
 }
 
+/** One phrasing asked of the source and what came back (mirrors core's `TopicProbe`). */
+export interface RunProbe {
+  question: string;
+  answer: string;
+  refused: boolean;
+  responsive: boolean;
+  specificity: string;
+}
+
 /** One resolved topic in a run's live activity log (from a `topic.result` event). */
 export interface RunLogEntry {
   seq: number;
@@ -176,6 +185,7 @@ export interface RunLogEntry {
   agreement: number;
   sample: string;
   detail: string;
+  probes: RunProbe[];
 }
 
 /** How many activity-log entries a run doc retains (a scrolling live feed; the full report is authoritative). */

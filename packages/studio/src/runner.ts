@@ -81,6 +81,7 @@ function entryToTopicResult(e: RunLogEntry): TopicResult {
     agreement: e.agreement,
     sample: e.sample,
     detail: e.detail,
+    probes: e.probes ?? [],
   };
 }
 
@@ -257,6 +258,7 @@ export class EvalRunner {
             agreement: ev.agreement,
             sample: ev.sample,
             detail: ev.detail,
+            probes: ev.probes,
           });
           done = ev.index + 1;
           current = null;

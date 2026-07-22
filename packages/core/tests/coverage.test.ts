@@ -135,6 +135,16 @@ describe("coverage", () => {
     }
   });
 
+  it("records a per-topic transcript of the questions asked and the answers given", async () => {
+    const report = await run(honestSource(canaryQuestions));
+    const search = report.topics.find((t) => t.id === "search");
+    expect(search?.probes.length).toBeGreaterThan(0);
+    for (const p of search?.probes ?? []) {
+      expect(allQuestions.has(p.question)).toBe(true); // a real declared phrasing, verbatim
+      expect(typeof p.answer).toBe("string");
+    }
+  });
+
   it("resumes: folds in priorResults without re-probing those topics, and returns a full report", async () => {
     const full = await run(honestSource(canaryQuestions));
     const prior = full.topics.filter((t) => t.id === "search"); // pretend 'search' was done in an earlier run

@@ -33,6 +33,20 @@ export type TopicStatus =
   /** canary: confidently answered a fabricated topic — the alarm. */
   | "canary-bit";
 
+/** One phrasing asked of the source and what came back — the transcript behind a topic's status. */
+export interface TopicProbe {
+  /** The exact question sent to the source (a declared phrasing, verbatim). */
+  question: string;
+  /** The source's answer (truncated to keep reports bounded). */
+  answer: string;
+  /** The source reported no result at all. */
+  refused: boolean;
+  /** The judge deemed the answer on-topic (vs a dodge/refusal). */
+  responsive: boolean;
+  /** The judge's specificity grade for the answer ("none" | "vague" | "specific", as a string). */
+  specificity: string;
+}
+
 export interface TopicResult {
   /** The stable cross-run join key: `topicKey(topic)` (full path + id). Bare `id` is no longer unique. */
   key: string;
@@ -47,6 +61,8 @@ export interface TopicResult {
   /** A representative excerpt of what the source said — the raw evidence behind the status. */
   sample: string;
   detail: string;
+  /** The full per-phrasing transcript (question + answer + verdict), so a human can inspect the evidence. */
+  probes: TopicProbe[];
 }
 
 export interface CoverageReport {
@@ -91,6 +107,9 @@ const REFUSED_VERDICT: AnswerVerdict = {
   specificity: "none",
   rationale: "Source reported no result.",
 };
+
+/** Characters of each answer kept in the per-topic transcript. Bounded so a report stays a sane size. */
+const PROBE_CHARS = 800;
 
 /** Probe a source's coverage against a manifest. Returns a handle; nothing has run yet. */
 export function coverage(
@@ -156,6 +175,7 @@ async function* coverageOp(
       agreement: result.agreement,
       sample: result.sample,
       detail: result.detail,
+      probes: result.probes,
     };
     yield {
       type: "notice",
@@ -176,9 +196,17 @@ async function classifyTopic(
   signal: AbortSignal,
 ): Promise<TopicResult> {
   const graded: { text: string; verdict: AnswerVerdict }[] = [];
+  const transcript: TopicProbe[] = [];
   for (const { question, answer } of probes) {
     const verdict = answer.refused ? REFUSED_VERDICT : await judge.classifyAnswer(question, answer.text, signal);
     graded.push({ text: answer.text, verdict });
+    transcript.push({
+      question,
+      answer: truncate(answer.text, PROBE_CHARS),
+      refused: answer.refused,
+      responsive: verdict.responsive,
+      specificity: String(verdict.specificity),
+    });
   }
 
   const responsive = graded.filter((g) => g.verdict.responsive);
@@ -203,6 +231,7 @@ async function classifyTopic(
     kind: topic.kind,
     sample,
     agreement,
+    probes: transcript,
   };
 
   if (topic.kind === "canary") {
