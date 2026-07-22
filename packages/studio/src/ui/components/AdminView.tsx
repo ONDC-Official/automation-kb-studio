@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from "react";
 
-import type { AccessPolicyView, AdminOverview, Identity, Manifest, NodeInfo, Proposal } from "../types";
+import type { AccessPolicyView, AccessRequest, AdminOverview, Identity, Manifest, NodeInfo, Proposal } from "../types";
 import { MetaForm } from "./MetaForm";
 
 /** The policy payload the admin saves — the editable half of `AccessPolicyView`. */
@@ -138,14 +138,63 @@ function AccessSection({ access, nodes, myEmail, onSave }: { access: AccessPolic
   );
 }
 
+/** One pending access request: the requester, their note, an editable scope draft, and grant/deny. */
+function RequestRow({ request, nodes, onGrant, onDeny }: { request: AccessRequest; nodes: NodeInfo[]; onGrant: (id: string, scopes: string[][]) => void; onDeny: (id: string) => void }): React.JSX.Element {
+  const [scopes, setScopes] = useState<string[][]>(request.paths);
+  return (
+    <li className="history-row" style={{ flexWrap: "wrap" }}>
+      <div className="history-main">
+        <div className="history-msg">
+          {request.name} &lt;{request.email}&gt;
+        </div>
+        <div className="history-meta">
+          requested {request.createdAt.slice(0, 10)}
+          {request.note ? ` · “${request.note}”` : ""}
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <ScopeEditor scopes={scopes} nodes={nodes} onChange={setScopes} />
+        </div>
+      </div>
+      <div className="review-btns">
+        <button className="btn btn-primary sm" type="button" disabled={scopes.length === 0} title={scopes.length === 0 ? "Add at least one scope to grant" : "Grant these scopes"} onClick={() => onGrant(request.id, scopes)}>
+          Grant
+        </button>
+        <button className="btn btn-secondary sm" type="button" onClick={() => onDeny(request.id)}>
+          Deny
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function AccessRequestsSection({ requests, nodes, onGrant, onDeny }: { requests: AccessRequest[] | null; nodes: NodeInfo[]; onGrant: (id: string, scopes: string[][]) => void; onDeny: (id: string) => void }): React.JSX.Element {
+  if (!requests) return <div className="hint">Loading…</div>;
+  if (requests.length === 0) return <div className="hint">No pending access requests.</div>;
+  return (
+    <>
+      <div className="hint" style={{ marginBottom: 8 }}>
+        Granting adds the requester to the access policy with the scopes below (adjust before granting) — promoting them from viewer to author.
+      </div>
+      <ul className="history-list">
+        {requests.map((r) => (
+          <RequestRow key={r.id} request={r} nodes={nodes} onGrant={onGrant} onDeny={onDeny} />
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function AdminView({
   identity,
   access,
   overview,
   proposals,
+  accessRequests,
   nodes,
   manifest,
   onSaveAccess,
+  onGrantRequest,
+  onDenyRequest,
   onSaveMeta,
   onExport,
 }: {
@@ -153,9 +202,12 @@ export function AdminView({
   access: AccessPolicyView | null;
   overview: AdminOverview | null;
   proposals: Proposal[] | null;
+  accessRequests: AccessRequest[] | null;
   nodes: NodeInfo[];
   manifest: Manifest | null;
   onSaveAccess: (draft: AccessDraft) => void;
+  onGrantRequest: (id: string, scopes: string[][]) => void;
+  onDenyRequest: (id: string) => void;
   onSaveMeta: (id: string, version: string, subject: string, levels: string[]) => void;
   onExport: () => void;
 }): React.JSX.Element {
@@ -165,6 +217,13 @@ export function AdminView({
       <section className="admin-section">
         <h3>Access &amp; Permissions</h3>
         <AccessSection access={access} nodes={nodes} myEmail={myEmail} onSave={onSaveAccess} />
+      </section>
+
+      <section className="admin-section">
+        <h3>
+          Access requests{accessRequests && accessRequests.length > 0 ? ` (${String(accessRequests.length)})` : ""}
+        </h3>
+        <AccessRequestsSection requests={accessRequests} nodes={nodes} onGrant={onGrantRequest} onDeny={onDenyRequest} />
       </section>
 
       <section className="admin-section">

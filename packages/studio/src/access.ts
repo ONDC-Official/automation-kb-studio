@@ -47,6 +47,33 @@ export function policyToData(policy: AccessPolicy | null): PolicyData {
   };
 }
 
+/** Dedupe a scope list (each scope a path prefix) by its segment join, keeping first-seen order. */
+function dedupeScopes(scopes: string[][]): string[][] {
+  const seen = new Set<string>();
+  const out: string[][] = [];
+  for (const s of scopes) {
+    const k = s.join("/");
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/**
+ * A copy of `data` with `granted` scopes merged into `email`'s entry (added as a new scoped user when
+ * absent, deduped). Used when an admin grants an access request — promoting a viewer to an author. The
+ * admin list and default scopes are carried through unchanged.
+ */
+export function withGrantedScopes(data: PolicyData, email: string, granted: string[][]): PolicyData {
+  const users = data.users.map((u) => ({ email: u.email, scopes: u.scopes }));
+  const existing = users.find((u) => u.email === email);
+  if (existing) existing.scopes = dedupeScopes([...existing.scopes, ...granted]);
+  else users.push({ email, scopes: dedupeScopes(granted) });
+  return { admins: [...data.admins], users, defaultScopes: data.defaultScopes };
+}
+
 /** `prefix` is a taxonomy prefix of `path` (an empty prefix — the root — matches everything). */
 function isPrefix(prefix: string[], path: string[]): boolean {
   if (prefix.length > path.length) return false;

@@ -51,7 +51,8 @@ git clone https://github.com/extedcouD/ai-domain-evaluator.git
 cd ai-domain-evaluator/deploy
 cp .env.example .env
 nano .env          # fill in KB_HOST, MONGODB_URI, KB_DB_NAME, KB_ADMINS,
-                   # OAUTH_CLIENT_ID/SECRET, OAUTH_COOKIE_SECRET (openssl rand -base64 32)
+                   # OAUTH_CLIENT_ID/SECRET, OAUTH_COOKIE_SECRET
+                   #   (cookie secret must be URL-safe: openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
 
 docker compose --env-file .env up -d --build
 

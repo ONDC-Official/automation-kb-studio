@@ -28,10 +28,12 @@ import {
   policyToData,
   roleFor,
   scopesFor,
+  withGrantedScopes,
   type AccessPolicy,
   type PolicyData,
   type Role,
 } from "./access";
+import { countPending, getRequest, listPending, pendingFor, resolveRequest, submitRequest } from "./access-requests";
 import { readPolicy, seedPolicy, writePolicy } from "./access-store";
 import { DEFAULT_ACTOR, makeActorResolver, type Actor } from "./actor";
 import { connectDb, ensureIndexes, type DbHandle, type TopicSnapshot, type WorkspaceMeta } from "./db";
@@ -215,6 +217,11 @@ async function handleKb(req: IncomingMessage, res: ServerResponse, ctx: Ctx, met
   if (method === "GET" && path.startsWith("/api/proposals/")) return await getProposalDetail(res, ctx, path);
   if (method === "POST" && path.startsWith("/api/proposals/")) return await postMerge(req, res, ctx, path);
 
+  // Request access (viewer asks; admin grants/denies).
+  if (method === "POST" && path === "/api/access-requests") return await postAccessRequest(req, res, ctx);
+  if (method === "GET" && path === "/api/access-requests") return await getAccessRequests(req, res, ctx);
+  if (method === "POST" && path.startsWith("/api/access-requests/")) return await postAccessRequestDecision(req, res, ctx, path);
+
   // Admin.
   if (method === "GET" && path === "/api/access") return await getAccess(req, res, ctx);
   if (method === "PUT" && path === "/api/access") return await putAccess(req, res, ctx);
@@ -227,12 +234,17 @@ async function handleKb(req: IncomingMessage, res: ServerResponse, ctx: Ctx, met
 
 async function getWhoami(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
   const { actor, role, policy } = await resolveRead(ctx, req);
+  // A non-admin sees their own open request (drives the "requested" state); an admin sees the queue depth.
+  const accessRequest = role === "admin" ? null : await pendingFor(ctx.db, actor.email);
+  const pendingRequests = role === "admin" ? await countPending(ctx.db) : 0;
   sendJson(res, 200, {
     actor,
     workspace: intendedWorkspace(role, actor),
     role,
     scopes: scopesFor(policy, actor.email),
     review: ctx.multiUser,
+    accessRequest,
+    pendingRequests,
   });
 }
 
@@ -572,6 +584,59 @@ async function getOverview(req: IncomingMessage, res: ServerResponse, ctx: Ctx):
     accessConfigured: policy !== null,
     kbAdmins: policy ? [...policy.admins] : [],
     workspaces,
+  });
+}
+
+// ---- access requests (viewer asks for write access; admin grants/denies) ------------------------
+
+/** A viewer files (or replaces) their open request naming the path(s) they want to edit. */
+async function postAccessRequest(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
+  const body = await readBody(req);
+  const paths = scopeList(body["paths"]); // reuses the policy scope validator (safe segments)
+  if (paths.length === 0) throw new BadRequest("pick at least one path to request access to");
+  const noteRaw = body["note"];
+  const note = typeof noteRaw === "string" && noteRaw.trim() !== "" ? noteRaw.trim() : null;
+
+  const { actor, role } = await resolveRead(ctx, req);
+  if (role === "admin") throw new BadRequest("you already have full access");
+  sendJson(res, 200, await submitRequest(ctx.db, actor, paths, note));
+}
+
+/** The open request queue (admin-only — requests carry emails and notes). */
+async function getAccessRequests(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
+  const { actor, policy } = await resolveRead(ctx, req);
+  guardAdmin(policy, actor, "view access requests");
+  sendJson(res, 200, { requests: await listPending(ctx.db) });
+}
+
+/** Grant (`/grant`) or deny (`/deny`) a pending request. Granting merges scopes into the access policy. */
+async function postAccessRequestDecision(req: IncomingMessage, res: ServerResponse, ctx: Ctx, path: string): Promise<void> {
+  const segs = refSegments(path, "/api/access-requests/");
+  const id = segs[0];
+  const action = segs[1];
+  if (!id || (action !== "grant" && action !== "deny")) throw new BadRequest("bad access-request ref");
+  const body = action === "grant" ? await readBody(req) : {};
+
+  await handleWrite(ctx, req, async (actor, _role, policy) => {
+    guardAdmin(policy, actor, "decide access requests");
+    if (action === "deny") {
+      const denied = await resolveRequest(ctx.db, id, "denied", actor);
+      if (!denied) throw new NotFound("no such pending request");
+      return sendJson(res, 200, { ok: true, request: denied });
+    }
+    const request = await getRequest(ctx.db, id);
+    if (!request || request.status !== "pending") throw new NotFound("no such pending request");
+    // The admin may override the requested paths with an explicit `scopes`; otherwise grant what was asked.
+    const scopes = body["scopes"] !== undefined ? scopeList(body["scopes"]) : request.paths;
+    await writePolicy(ctx.db, withGrantedScopes(policyToData(policy), request.email, scopes), actor);
+    const granted = await resolveRequest(ctx.db, id, "granted", actor);
+    await appendRevision(ctx.db, {
+      workspace: MAIN,
+      actor,
+      action: "access",
+      message: `grant ${request.email} write access to ${scopes.map((s) => s.join("/") || "root").join(", ")}`,
+    });
+    sendJson(res, 200, { ok: true, request: granted ?? request });
   });
 }
 

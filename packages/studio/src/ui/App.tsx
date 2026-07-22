@@ -17,6 +17,7 @@ import {
 } from "./state";
 import type {
   AccessPolicyView,
+  AccessRequest,
   AdminOverview,
   CoverageReportWithTree,
   CoverageSummary,
@@ -37,6 +38,7 @@ import { Header } from "./components/Header";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { PathTree } from "./components/PathTree";
 import { ProposalsPanel } from "./components/ProposalsPanel";
+import { RequestAccessModal } from "./components/RequestAccessModal";
 import { Toast } from "./components/Toast";
 import { TopicList } from "./components/TopicList";
 
@@ -145,6 +147,15 @@ export function App(): React.JSX.Element {
     }
   }, []);
 
+  const loadAccessRequests = useCallback(async () => {
+    try {
+      const r = await get<{ requests: AccessRequest[] }>("/api/access-requests");
+      dispatch({ type: "accessRequestsLoaded", requests: r.requests });
+    } catch {
+      dispatch({ type: "accessRequestsLoaded", requests: [] });
+    }
+  }, []);
+
   // ---- boot --------------------------------------------------------------------------------------
   useEffect(() => {
     void loadManifest();
@@ -215,7 +226,8 @@ export function App(): React.JSX.Element {
     void loadAccess();
     void loadOverview();
     void loadProposals();
-  }, [state.view, state.identity, loadAccess, loadOverview, loadProposals]);
+    void loadAccessRequests();
+  }, [state.view, state.identity, loadAccess, loadOverview, loadProposals, loadAccessRequests]);
 
   // ---- derived -----------------------------------------------------------------------------------
   const newestFile = state.runs[0]?.file;
@@ -511,6 +523,39 @@ export function App(): React.JSX.Element {
     }
   };
 
+  // ---- request-access handlers -------------------------------------------------------------------
+  const submitAccessRequest = async (paths: string[][], note: string): Promise<void> => {
+    try {
+      await post("/api/access-requests", note ? { paths, note } : { paths });
+      toast("access request sent");
+      dispatch({ type: "setRequestAccessOpen", open: false });
+      await loadWhoami(); // reflect the new pending state on the button
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const grantAccessRequest = async (id: string, scopes: string[][]): Promise<void> => {
+    try {
+      await post(`/api/access-requests/${encodeURIComponent(id)}/grant`, { scopes });
+      toast("granted access");
+      // The policy changed and the requester's role may flip — reload the affected surfaces.
+      await Promise.all([loadAccessRequests(), loadAccess(), loadOverview(), loadWhoami()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
+  const denyAccessRequest = async (id: string): Promise<void> => {
+    try {
+      await post(`/api/access-requests/${encodeURIComponent(id)}/deny`, {});
+      toast("denied request");
+      await Promise.all([loadAccessRequests(), loadWhoami()]);
+    } catch (err) {
+      toast(errMsg(err), "error");
+    }
+  };
+
   // ---- render ------------------------------------------------------------------------------------
   return (
     <div className="app">
@@ -525,6 +570,7 @@ export function App(): React.JSX.Element {
         onOpenHistory={openHistory}
         identity={state.identity}
         onOpenProposals={openProposals}
+        onRequestAccess={() => dispatch({ type: "setRequestAccessOpen", open: true })}
       />
 
       <div className={`body${state.view !== "author" ? " cov" : ""}`}>
@@ -576,9 +622,12 @@ export function App(): React.JSX.Element {
               access={state.access}
               overview={state.overview}
               proposals={state.proposals}
+              accessRequests={state.accessRequests}
               nodes={state.nodes}
               manifest={state.manifest}
               onSaveAccess={(draft) => void saveAccess(draft)}
+              onGrantRequest={(id, scopes) => void grantAccessRequest(id, scopes)}
+              onDenyRequest={(id) => void denyAccessRequest(id)}
               onSaveMeta={(id, version, subject, lv) => void saveMeta(id, version, subject, lv)}
               onExport={() => void exportManifest()}
             />
@@ -608,6 +657,16 @@ export function App(): React.JSX.Element {
           onExpand={(id) => void loadProposalDetail(id)}
           onMerge={(id) => void mergeProposal(id)}
           onClose={() => dispatch({ type: "setProposalsOpen", open: false })}
+        />
+      )}
+
+      {state.requestAccessOpen && (
+        <RequestAccessModal
+          nodes={state.nodes}
+          initialPaths={state.selectedPath.length ? [state.selectedPath] : []}
+          pending={state.identity?.accessRequest ?? null}
+          onSubmit={(paths, note) => void submitAccessRequest(paths, note)}
+          onClose={() => dispatch({ type: "setRequestAccessOpen", open: false })}
         />
       )}
 

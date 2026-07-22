@@ -11,6 +11,7 @@
 import { slug, topicKey, TOPIC_ID_RE, type StatusBucket } from "./derive";
 import type {
   AccessPolicyView,
+  AccessRequest,
   AdminOverview,
   Change,
   CoverageReportWithTree,
@@ -99,6 +100,11 @@ export interface State {
   // Admin view (admins only): the access policy + an operational overview.
   access: AccessPolicyView | null;
   overview: AdminOverview | null;
+  /** The open access-request queue (admin), fetched on entering the Admin view. */
+  accessRequests: AccessRequest[] | null;
+
+  // "Request access" modal (viewers): a viewer picks path(s) to ask for write access.
+  requestAccessOpen: boolean;
 
   nextId: number;
 }
@@ -130,6 +136,8 @@ export function initialState(): State {
     syncConflicts: null,
     access: null,
     overview: null,
+    accessRequests: null,
+    requestAccessOpen: false,
     nextId: 1,
   };
 }
@@ -180,7 +188,10 @@ export type Action =
   | { type: "clearSyncConflicts" }
   // admin
   | { type: "accessLoaded"; access: AccessPolicyView }
-  | { type: "overviewLoaded"; overview: AdminOverview };
+  | { type: "overviewLoaded"; overview: AdminOverview }
+  | { type: "accessRequestsLoaded"; requests: AccessRequest[] }
+  // request access (viewer)
+  | { type: "setRequestAccessOpen"; open: boolean };
 
 function editorFor(eid: string, topic: Topic, baseVersion: string | null): EditorState {
   return {
@@ -450,6 +461,12 @@ export function reducer(state: State, action: Action): State {
 
     case "overviewLoaded":
       return { ...state, overview: action.overview };
+
+    case "accessRequestsLoaded":
+      return { ...state, accessRequests: action.requests };
+
+    case "setRequestAccessOpen":
+      return { ...state, requestAccessOpen: action.open };
   }
 }
 

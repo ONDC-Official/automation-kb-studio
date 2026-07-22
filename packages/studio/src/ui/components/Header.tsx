@@ -42,6 +42,7 @@ export function Header(props: {
   onOpenHistory: () => void;
   identity: Identity | null;
   onOpenProposals: () => void;
+  onRequestAccess: () => void;
 }): React.JSX.Element {
   const { view, manifest, dispatch, identity } = props;
   const topicCount = manifest?.topics.length ?? 0;
@@ -50,6 +51,10 @@ export function Header(props: {
   const isAdmin = identity?.role === "admin";
   const views: View[] = isAdmin ? ["author", "coverage", "admin"] : ["author", "coverage"];
   const viewLabel: Record<View, string> = { author: "Author", coverage: "Coverage", admin: "Admin" };
+  const pendingRequests = identity?.pendingRequests ?? 0;
+  // A read-only viewer in a multi-user deployment can ask for write access.
+  const canRequestAccess = identity?.review === true && identity.role === "viewer";
+  const hasPendingRequest = !!identity?.accessRequest;
   return (
     <header className="topbar">
       <div className="topbar-row">
@@ -73,10 +78,21 @@ export function Header(props: {
                 onClick={() => dispatch({ type: "setView", view: v })}
               >
                 {viewLabel[v]}
+                {v === "admin" && pendingRequests > 0 && <span className="seg-badge" title={`${String(pendingRequests)} pending access request(s)`}>{pendingRequests}</span>}
               </button>
             ))}
           </div>
           <IdentityPanel manifest={manifest} nodes={props.nodes} onSaveMeta={props.onSaveMeta} onExport={props.onExport} />
+          {canRequestAccess && (
+            <button
+              className="btn btn-secondary sm"
+              type="button"
+              title={hasPendingRequest ? "You have a pending access request — click to update it" : "Request write access to part of the taxonomy"}
+              onClick={props.onRequestAccess}
+            >
+              {hasPendingRequest ? "Access requested" : "Request access"}
+            </button>
+          )}
           {identity?.review && (
             <button
               className="btn btn-secondary sm"

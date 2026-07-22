@@ -81,6 +81,24 @@ export interface AccessDoc {
   updatedBy: string;
 }
 
+/**
+ * A viewer's request for write access (`accessRequests` collection). A viewer picks the taxonomy
+ * path(s) they want to edit; an admin grants (merging those — or adjusted — scopes into the access
+ * policy, promoting the requester to an author) or denies. Only ONE `pending` request may exist per
+ * email at a time (a partial-unique index enforces it), so submitting again upserts.
+ */
+export interface AccessRequestDoc {
+  _id: ObjectId;
+  email: string; // requester (from the trusted proxy identity)
+  name: string;
+  paths: string[][]; // the taxonomy path(s) they asked to edit
+  note: string | null; // optional message to the admins
+  status: "pending" | "granted" | "denied";
+  createdAt: Date;
+  decidedAt: Date | null;
+  decidedBy: string | null; // admin email who granted/denied
+}
+
 /** A point-in-time copy of a topic, stored on a revision so a delete/edit stays restorable. */
 export interface TopicSnapshot {
   key: string;
@@ -127,6 +145,7 @@ export interface DbHandle {
   topics: Collection<TopicDoc>;
   config: Collection<AccessDoc>;
   revisions: Collection<RevisionDoc>;
+  accessRequests: Collection<AccessRequestDoc>;
   close(): Promise<void>;
 }
 
@@ -142,6 +161,7 @@ export async function connectDb(uri: string, dbName: string): Promise<DbHandle> 
     topics: db.collection<TopicDoc>("topics"),
     config: db.collection<AccessDoc>("config"),
     revisions: db.collection<RevisionDoc>("revisions"),
+    accessRequests: db.collection<AccessRequestDoc>("accessRequests"),
     close: () => client.close(),
   };
 }
@@ -165,4 +185,7 @@ export async function ensureIndexes(h: DbHandle): Promise<void> {
   await h.revisions.createIndex({ workspace: 1, ts: -1 });
   await h.revisions.createIndex({ workspace: 1, topicKey: 1, ts: -1 });
   await h.revisions.createIndex({ ts: 1 }, { expireAfterSeconds: historyTtlSeconds() });
+  // At most one OPEN request per email (submitting again upserts); the status/date index feeds the admin queue.
+  await h.accessRequests.createIndex({ email: 1 }, { unique: true, partialFilterExpression: { status: "pending" } });
+  await h.accessRequests.createIndex({ status: 1, createdAt: -1 });
 }

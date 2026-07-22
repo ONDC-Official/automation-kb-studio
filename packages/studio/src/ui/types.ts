@@ -124,6 +124,19 @@ export interface HistoryData {
   deletions: DeletedEntry[];
 }
 
+/** A viewer's request for write access, or an admin's decision on one (`GET /api/access-requests`). */
+export interface AccessRequest {
+  id: string;
+  email: string;
+  name: string;
+  paths: string[][];
+  note: string | null;
+  status: "pending" | "granted" | "denied";
+  createdAt: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+}
+
 /** `GET /api/whoami` — the signed-in user, the workspace they work in, and whether review is available. */
 export interface Identity {
   actor: { name: string; email: string };
@@ -132,6 +145,10 @@ export interface Identity {
   role: string;
   scopes: string[][];
   review: boolean;
+  /** The caller's own open access request (non-admins), or null. Drives the "requested" button state. */
+  accessRequest: AccessRequest | null;
+  /** How many requests await a decision — admins only (0 otherwise). Drives the Admin-tab badge. */
+  pendingRequests: number;
 }
 
 /** A topic snapshot carried on a change (the author's or main's copy). */
