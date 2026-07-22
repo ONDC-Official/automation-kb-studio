@@ -60,6 +60,29 @@ export interface StudioOptions {
 /** The built front-end lives here after `vite build`. Absent in a fresh checkout / in tests. */
 const DIST = fileURLToPath(new URL("../dist", import.meta.url));
 
+/**
+ * The sub-path the app is mounted under (e.g. "/kb-studio"), normalised to a leading slash and no
+ * trailing slash, or "" for root. Must match the UI's Vite `base` (see vite.config.ts). Requests may
+ * arrive WITH this prefix (an outer proxy that preserves the path) or WITHOUT it (a proxy that rewrites
+ * `/kb-studio/*` → `/*`); `stripBase` folds both to the root-relative paths the router matches, so the
+ * deployment works either way.
+ */
+/** Normalise a raw `KB_BASE_PATH` (e.g. "kb-studio", "/kb-studio/") to a leading slash + no trailing, or "". */
+export function normalizeBasePath(raw: string | undefined): string {
+  const inner = (raw ?? "").trim().replace(/^\/+|\/+$/g, "");
+  return inner ? `/${inner}` : "";
+}
+
+/** Remove the mount prefix from an incoming pathname, if present, so routing is always root-relative. */
+export function stripBase(path: string, base: string): string {
+  if (!base) return path;
+  if (path === base) return "/";
+  if (path.startsWith(`${base}/`)) return path.slice(base.length);
+  return path;
+}
+
+const BASE_PATH = normalizeBasePath(process.env["KB_BASE_PATH"]);
+
 /** A malformed request (bad path ref, unparseable body) → 400. */
 class BadRequest extends Error {}
 /** A well-formed request for a thing that isn't there → 404. */
@@ -153,7 +176,7 @@ function targetWs(ctx: Ctx, actor: Actor, role: Role): Promise<string> {
 
 async function handle(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
   try {
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    const path = stripBase(new URL(req.url ?? "/", "http://localhost").pathname, BASE_PATH);
     const method = req.method ?? "GET";
 
     if (method === "GET" && path === "/") return serveHtml(res);

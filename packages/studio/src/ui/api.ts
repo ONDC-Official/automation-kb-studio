@@ -12,13 +12,20 @@ export interface ApiError extends Error {
   body: unknown;
 }
 
+/**
+ * The sub-path the app is mounted under (Vite's `base`, e.g. "/kb-studio/" or "/"), minus its trailing
+ * slash. Every request is prefixed with it so a subpath deployment fetches `/kb-studio/api/...` — which
+ * the reverse proxy routes to the studio — rather than a root-absolute `/api/...` that escapes the mount.
+ */
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit =
     body === undefined
       ? { method }
       : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
 
-  const res = await fetch(path, init);
+  const res = await fetch(BASE + path, init);
   const text = await res.text();
   const data: unknown = text ? JSON.parse(text) : {};
 

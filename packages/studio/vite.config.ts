@@ -8,8 +8,18 @@ import { defineConfig } from "vite";
  */
 const apiPort = Number(process.env["KB_API_PORT"] ?? "4318");
 
+/**
+ * The sub-path the app is served under. Root by default (`pnpm studio` dev stays at `/`); a hosted
+ * subpath sets `KB_BASE_PATH=/kb-studio` at BUILD time so every emitted asset + fetch URL is prefixed.
+ * Normalised to exactly one leading and trailing slash, which Vite requires. Must match the server's
+ * `KB_BASE_PATH` at runtime (see src/server.ts).
+ */
+const rawBase = process.env["KB_BASE_PATH"] ?? "/";
+const base = rawBase === "/" ? "/" : `/${rawBase.replace(/^\/+|\/+$/g, "")}/`;
+
 export default defineConfig({
   root: "src/ui",
+  base,
   plugins: [react()],
   build: {
     outDir: "../../dist",

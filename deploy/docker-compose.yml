@@ -10,8 +10,13 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        # Sub-path the app is served under (e.g. /kb-studio). Baked into the UI bundle at build time;
+        # leave as "/" for root-hosting. Must match the runtime KB_BASE_PATH below.
+        KB_BASE_PATH: ${KB_BASE_PATH:-/}
     environment:
       KB_MULTI_USER: "1"
+      KB_BASE_PATH: ${KB_BASE_PATH:-/} # runtime: the server strips this prefix off incoming requests
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017} # the internal KB store
       KB_DB_NAME: ${KB_DB_NAME:-kb_studio}
       KB_ADMINS: ${KB_ADMINS} # admin emails to seed on first boot (the access policy then governs)

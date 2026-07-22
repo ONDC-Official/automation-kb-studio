@@ -12,6 +12,10 @@ RUN corepack enable
 
 WORKDIR /app
 COPY . .
+# Sub-path the app is served under (e.g. /kb-studio). MUST be set at BUILD time — Vite bakes it into the
+# emitted asset + fetch URLs. Passed through to runtime below so the server strips the same prefix.
+ARG KB_BASE_PATH=/
+ENV KB_BASE_PATH=${KB_BASE_PATH}
 # The server never uses mongodb-memory-server (dev-only), so skip its ~66MB binary download at build.
 ENV MONGOMS_DISABLE_POSTINSTALL=1
 RUN pnpm install --frozen-lockfile \
