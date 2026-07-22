@@ -6,13 +6,13 @@ through a reviewed merge. Nothing is silently lost — every change is an attrib
 with a History/Trash panel for recovery.
 
 ```
-Internet ──443──▶ Caddy (TLS) ──▶ oauth2-proxy (SSO) ──▶ studio (node) ──▶ MongoDB
-                                     injects                per-author           (workspaces / topics /
-                                 X-Forwarded-Email          workspaces            config / revisions)
+Internet ──443──▶ Nginx (TLS) ──▶ Caddy :7674 ──▶ oauth2-proxy (SSO) ──▶ studio (node) ──▶ MongoDB
+                                                       injects                per-author           (workspaces / topics /
+                                                   X-Forwarded-Email          workspaces            config / revisions)
 ```
 
-Only Caddy is exposed to the internet. `studio` and `oauth2-proxy` sit on the internal Docker network,
-so the trusted identity header cannot be spoofed from outside.
+Only Nginx is exposed to the internet. It proxies to Caddy on port `7674`; `studio` and `oauth2-proxy`
+sit on the internal Docker network, so the trusted identity header cannot be spoofed from outside.
 
 ---
 
@@ -34,8 +34,8 @@ GitHub is only the SSO identity provider now — there is no KB git repo, no ser
 
 1. Launch an instance (Ubuntu 22.04+, `t3.small` is plenty) with an **Elastic IP**.
 2. Attach (or use the root) **EBS volume** — this holds the Mongo data directory. 20 GB is ample.
-3. **Security group**: inbound `443` (HTTPS) and `80` (only for the TLS challenge) from the internet,
-   and `22` (SSH) from your IP. **Do not** open 4180/7674/27017 — those stay internal.
+3. **Security group**: inbound `443` (HTTPS), `80` (Nginx redirects/challenges), and `22` (SSH) from
+   your IP. **Do not** open 4180/7674/27017 — those stay internal behind Nginx.
 4. **DNS**: point `kb.yourcompany.com` (an A record) at the Elastic IP.
 5. Install Docker + the compose plugin:
    ```bash
@@ -55,14 +55,24 @@ nano .env          # fill in KB_HOST, MONGODB_URI, KB_DB_NAME, KB_ADMINS,
 
 docker compose --env-file .env up -d --build
 
-docker compose logs -f            # watch it import the seed KB on first boot; Caddy fetches a cert
+docker compose logs -f            # watch it import the seed KB on first boot
 ```
 
 On first boot the server imports the YAML seed KB baked into the image (`/app/kb`) into Mongo, then
 Mongo is the source of truth. To (re)run the import by hand against your database:
 `pnpm studio:migrate` (add `--force` to overwrite a populated store).
 
-Visit `https://kb.yourcompany.com` → GitHub login → you're in.
+Configure Nginx to proxy the KB hostname to `http://172.17.0.1:7674`, then visit
+`https://kb.yourcompany.com` → GitHub login → you're in.
+
+```nginx
+location / {
+    proxy_pass http://172.17.0.1:7674;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
 
 ## 4. A day in the life
 
@@ -108,7 +118,7 @@ themselves scope — a change requires an admin.
 ## 8. Security notes
 
 - The studio trusts `X-Forwarded-Email` **only** because it is unreachable except through oauth2-proxy.
-  Never publish port 7674/4180 (or Mongo's 27017) to the host or the internet.
+  Never expose port 7674/4180 (or Mongo's 27017) publicly; Nginx is the only public entrypoint.
 - Anyone who can sign in becomes a read-only viewer. To restrict *who can sign in* at all, add
   `--github-org=<org>` back to the oauth2-proxy command in `docker-compose.yml`.
 

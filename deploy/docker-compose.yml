@@ -1,8 +1,8 @@
-# KB Studio — production stack: Caddy (TLS) -> oauth2-proxy (SSO) -> studio (node) -> MongoDB.
+# KB Studio — production stack: Nginx (TLS) -> Caddy -> oauth2-proxy (SSO) -> studio (node) -> MongoDB.
 #
-# Trust boundary: ONLY Caddy publishes ports (80/443). `studio` and `auth` are reachable only on the
-# internal Docker network, so the trusted identity header can't be spoofed from outside. Run from this
-# directory: `docker compose --env-file .env up -d --build`.
+# Nginx owns the EC2's public ports 80/443 and proxies this stack through port 7674. `studio` and `auth`
+# are reachable only on the internal Docker network, so the trusted identity header can't be spoofed from
+# outside. Run from this directory: `docker compose --env-file .env up -d --build`.
 #
 # MongoDB runs inside this stack and persists in the named `mongo-data` volume.
 services:
@@ -58,8 +58,7 @@ services:
     depends_on:
       - auth
     ports:
-      - "80:80" # ACME HTTP challenge
-      - "443:443" # HTTPS — the only public entrypoint
+      - "7674:80" # Nginx proxies to this application port; host ports 80/443 remain available to Nginx
     environment:
       KB_HOST: ${KB_HOST}
     volumes:
