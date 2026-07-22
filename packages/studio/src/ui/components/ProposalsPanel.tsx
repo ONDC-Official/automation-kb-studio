@@ -6,14 +6,92 @@
  */
 import { useState } from "react";
 
-import type { Change, Identity, Proposal, ProposalDetail } from "../types";
+import type { Change, ChangeSnapshot, Identity, Proposal, ProposalDetail } from "../types";
 
 const CLASS_LABEL: Record<Change["class"], string> = { add: "added", edit: "edited", delete: "deleted", conflict: "conflict" };
 const CLASS_CLS: Record<Change["class"], string> = { add: "s-ok", edit: "s-warn", delete: "s-muted", conflict: "s-alarm" };
 
+/** Split the author's questions against main's into removed / added / unchanged (order-preserving). */
+function diffQuestions(before: string[], after: string[]): { removed: string[]; added: string[]; kept: string[] } {
+  const b = new Set(before);
+  const a = new Set(after);
+  return { removed: before.filter((q) => !a.has(q)), added: after.filter((q) => !b.has(q)), kept: after.filter((q) => b.has(q)) };
+}
+
+function QLine({ sign, text }: { sign: "+" | "-" | " "; text: string }): React.JSX.Element {
+  const cls = sign === "+" ? "diff-add" : sign === "-" ? "diff-del" : "diff-same";
+  return (
+    <div className={`diff-q ${cls}`}>
+      <span className="diff-sign">{sign}</span>
+      <span>{text}</span>
+    </div>
+  );
+}
+
+/** A field-level line: shows old → new when they differ, or nothing when equal. */
+function FieldDiff({ label, before, after }: { label: string; before: string | undefined; after: string | undefined }): React.JSX.Element | null {
+  if (before === after) return null;
+  return (
+    <div className="diff-field">
+      <span className="diff-field-label">{label}</span>
+      {before !== undefined && <span className="diff-del">{before}</span>}
+      {before !== undefined && after !== undefined && <span> → </span>}
+      {after !== undefined && <span className="diff-add">{after}</span>}
+    </div>
+  );
+}
+
+/** The actual before/after content of one change — what a reviewer needs to decide the merge. */
+function ChangeDetail({ c }: { c: Change }): React.JSX.Element {
+  const mine = c.mine; // the author's proposed version (null = they deleted it)
+  const theirs = c.theirs; // main's current version (null = new topic)
+
+  if (c.class === "add" && mine) return <TopicBody snap={mine} sign="+" note="new topic" />;
+  if (c.class === "delete" && theirs) return <TopicBody snap={theirs} sign="-" note="removed" />;
+
+  // edit / conflict — show what moved from main (theirs) to the author's copy (mine).
+  const q = diffQuestions(theirs?.questions ?? [], mine?.questions ?? []);
+  return (
+    <div className="diff-detail">
+      {c.class === "conflict" && <div className="diff-field s-alarm-fg">Conflicts with main ({c.conflictKind}) — the author must sync &amp; resolve before this can merge.</div>}
+      <FieldDiff label="title" before={theirs?.title} after={mine?.title} />
+      <FieldDiff label="kind" before={theirs?.kind} after={mine?.kind} />
+      {q.removed.length + q.added.length === 0 ? (
+        <div className="diff-field diff-same">questions unchanged</div>
+      ) : (
+        <div className="diff-qs">
+          {q.removed.map((t, i) => (
+            <QLine key={`r${String(i)}`} sign="-" text={t} />
+          ))}
+          {q.added.map((t, i) => (
+            <QLine key={`a${String(i)}`} sign="+" text={t} />
+          ))}
+          {q.kept.length > 0 && <div className="diff-field diff-same">{q.kept.length} question(s) unchanged</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Full content of an added or deleted topic (every question is new / gone). */
+function TopicBody({ snap, sign, note }: { snap: ChangeSnapshot; sign: "+" | "-"; note: string }): React.JSX.Element {
+  return (
+    <div className="diff-detail">
+      <div className="diff-field diff-same">
+        {note} · kind <strong>{snap.kind}</strong>
+      </div>
+      <div className="diff-qs">
+        {snap.questions.map((t, i) => (
+          <QLine key={i} sign={sign} text={t} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ChangeRow({ c }: { c: Change }): React.JSX.Element {
   return (
-    <li className="history-row">
+    <li className="history-row" style={{ flexWrap: "wrap" }}>
       <code className={`history-sha ${CLASS_CLS[c.class]}`}>{c.conflictKind ?? CLASS_LABEL[c.class]}</code>
       <div className="history-main">
         <div className="history-msg">{c.title}</div>
@@ -21,6 +99,7 @@ function ChangeRow({ c }: { c: Change }): React.JSX.Element {
           <code>{c.key}</code>
         </div>
       </div>
+      <ChangeDetail c={c} />
     </li>
   );
 }

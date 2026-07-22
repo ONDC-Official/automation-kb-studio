@@ -205,6 +205,30 @@ export function App(): React.JSX.Element {
     }
   }, []);
 
+  // The last role we rendered, so a refresh can tell a role CHANGE (grant → author) from a no-op poll.
+  const roleRef = useRef<string | null>(null);
+  useEffect(() => {
+    roleRef.current = state.identity?.role ?? null;
+  }, [state.identity?.role]);
+
+  // Re-pull identity without a manual reload. On a role change (e.g. an admin granted a pending viewer
+  // write access, promoting them to author) the SERVER now serves a different workspace, so refetch the
+  // manifest + nodes too — otherwise the page keeps showing the read-only `main` view with no Review button.
+  const refreshIdentity = useCallback(async () => {
+    let next: Identity;
+    try {
+      next = await get<Identity>("/api/whoami");
+    } catch {
+      return;
+    }
+    const prev = roleRef.current;
+    dispatch({ type: "identityLoaded", identity: next });
+    if (prev !== null && next.role !== prev) {
+      await Promise.all([loadManifest(), loadNodes()]);
+      if (prev === "viewer" && next.role === "author") toast("access granted — you're now editing your own draft");
+    }
+  }, [loadManifest, loadNodes, toast]);
+
   const loadProposals = useCallback(async () => {
     try {
       const r = await get<{ proposals: Proposal[] }>("/api/proposals");
@@ -259,6 +283,27 @@ export function App(): React.JSX.Element {
       /* ignore */
     }
   }, [loadManifest, loadNodes, loadRuns, loadWhoami]);
+
+  // Keep identity fresh so a mid-session access grant doesn't strand the user on a stale read-only view:
+  // refresh whenever the tab regains focus, and poll while a viewer is waiting on a pending request.
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") void refreshIdentity();
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshIdentity]);
+
+  useEffect(() => {
+    const waiting = state.identity?.role === "viewer" && !!state.identity.accessRequest;
+    if (!waiting) return;
+    const t = setInterval(() => void refreshIdentity(), 15_000);
+    return () => clearInterval(t);
+  }, [state.identity?.role, state.identity?.accessRequest, refreshIdentity]);
 
   // Ensure the reports we need (newest for the overlay, plus A/B) are loaded.
   useEffect(() => {
