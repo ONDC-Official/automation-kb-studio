@@ -224,6 +224,30 @@ describe("scoping", () => {
   });
 });
 
+describe("DELETE /api/runs/:id", () => {
+  it("removes the run record entirely", async () => {
+    const s = await studioWithKb();
+    const id = await insertRun(s.db, { actor: ADMIN, status: "succeeded" });
+    expect(await s.db.evalRuns.findOne({ _id: id })).not.toBeNull();
+
+    const r = await reqAs<{ deleted: boolean }>(s.base, ADMIN, "DELETE", `/api/runs/${id}`);
+    expect(r.status).toBe(200);
+    expect(r.json.deleted).toBe(true);
+
+    expect(await s.db.evalRuns.findOne({ _id: id })).toBeNull();
+    const list = await reqAs<{ runs: { id: string }[] }>(s.base, ADMIN, "GET", "/api/runs");
+    expect(list.json.runs.some((x) => x.id === id)).toBe(false);
+  });
+
+  it("won't let a non-owner delete someone else's run", async () => {
+    const s = await studioWithKb();
+    const id = await insertRun(s.db, { actor: "someone@corp.com" });
+    const r = await reqAs(s.base, VIEWER, "DELETE", `/api/runs/${id}`);
+    expect(r.status).toBe(403);
+    expect(await s.db.evalRuns.findOne({ _id: id })).not.toBeNull();
+  });
+});
+
 describe("pause + resume (durable checkpoint)", () => {
   it("pauses mid-run keeping the log, then resumes from the checkpoint with fresh keys", async () => {
     const s = await studioWithManyTopics(8);

@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 
 import { buildNodeTree, pathKey, topicKey, type TreeNode } from "../derive";
+import { Caret } from "./common";
 import type { NodeInfo, Topic } from "../types";
 
 type CheckState = "on" | "off" | "partial";
@@ -108,7 +109,7 @@ export function ScopeTree({
       <div key={pk}>
         <div className="scope-row" style={{ paddingLeft: `${String(depth * 16)}px` }}>
           <button type="button" className="scope-twist" onClick={() => toggleExpand(pk)} aria-label={isOpen ? "collapse" : "expand"}>
-            {node.children.length || directTopics.length ? (isOpen ? "▾" : "▸") : "·"}
+            {node.children.length || directTopics.length ? <Caret open={isOpen} /> : "·"}
           </button>
           <Check state={folderState(node.path)} onClick={() => toggleFolder(node.path)} />
           <span className="scope-seg" onClick={() => toggleExpand(pk)}>

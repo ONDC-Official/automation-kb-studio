@@ -58,7 +58,7 @@ describe("KB Studio — request access", () => {
   it("gates the queue and decisions to admins", async () => {
     const s = await studio();
     await reqAs(s.base, VIEWER, "POST", "/api/access-requests", { paths: [["protocol"]] });
-    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0].id;
+    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0]!.id;
 
     expect((await reqAs(s.base, VIEWER, "GET", "/api/access-requests")).status).toBe(403);
     expect((await reqAs(s.base, VIEWER, "POST", `/api/access-requests/${id}/grant`, {})).status).toBe(403);
@@ -68,7 +68,7 @@ describe("KB Studio — request access", () => {
   it("granting promotes the viewer to a scoped author and clears the request", async () => {
     const s = await studio();
     await reqAs(s.base, VIEWER, "POST", "/api/access-requests", { paths: [["protocol"]] });
-    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0].id;
+    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0]!.id;
 
     const grant = await reqAs<{ ok: boolean; request: AccessRequest }>(s.base, ADMIN, "POST", `/api/access-requests/${id}/grant`, {});
     expect(grant.status).toBe(200);
@@ -89,7 +89,7 @@ describe("KB Studio — request access", () => {
   it("an admin can override the requested scopes when granting", async () => {
     const s = await studio();
     await reqAs(s.base, VIEWER, "POST", "/api/access-requests", { paths: [["protocol"]] });
-    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0].id;
+    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0]!.id;
     await reqAs(s.base, ADMIN, "POST", `/api/access-requests/${id}/grant`, { scopes: [["retail"]] });
 
     const vme = await reqAs<Whoami>(s.base, VIEWER, "GET", "/api/whoami");
@@ -99,7 +99,7 @@ describe("KB Studio — request access", () => {
   it("denying clears the request without granting scopes; a second decision 404s", async () => {
     const s = await studio();
     await reqAs(s.base, VIEWER, "POST", "/api/access-requests", { paths: [["protocol"]] });
-    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0].id;
+    const id = (await reqAs<{ requests: AccessRequest[] }>(s.base, ADMIN, "GET", "/api/access-requests")).json.requests[0]!.id;
 
     expect((await reqAs(s.base, ADMIN, "POST", `/api/access-requests/${id}/deny`, {})).status).toBe(200);
     const vme = await reqAs<Whoami>(s.base, VIEWER, "GET", "/api/whoami");

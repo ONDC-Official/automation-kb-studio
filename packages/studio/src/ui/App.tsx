@@ -142,17 +142,18 @@ export function App(): React.JSX.Element {
     [toast, loadEvalRuns],
   );
 
-  const cancelEvalRun = useCallback(
+  const deleteEvalRun = useCallback(
     async (id: string): Promise<void> => {
       try {
         await del(`/api/runs/${encodeURIComponent(id)}`);
-        toast("run canceled");
-        await Promise.all([loadEvalRuns(), loadEvalRun(id)]);
+        toast("run deleted");
+        // The record is gone; just refresh the list (evalRunsLoaded re-points selection to the newest run).
+        await loadEvalRuns();
       } catch (err) {
         dispatch({ type: "toast", message: errMsg(err), kind: "error" });
       }
     },
-    [toast, loadEvalRuns, loadEvalRun],
+    [toast, loadEvalRuns],
   );
 
   const pauseEvalRun = useCallback(
@@ -806,7 +807,7 @@ export function App(): React.JSX.Element {
               resuming={resumingRun}
               onSubmit={(req) => void submitRun(req)}
               onPause={(id) => void pauseEvalRun(id)}
-              onCancel={(id) => void cancelEvalRun(id)}
+              onDelete={(id) => void deleteEvalRun(id)}
               onResume={(id, req) => void resumeEvalRun(id, req)}
               dispatch={dispatch}
             />

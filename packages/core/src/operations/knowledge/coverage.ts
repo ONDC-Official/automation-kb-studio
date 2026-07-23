@@ -37,7 +37,7 @@ export type TopicStatus =
 export interface TopicProbe {
   /** The exact question sent to the source (a declared phrasing, verbatim). */
   question: string;
-  /** The source's answer (truncated to keep reports bounded). */
+  /** The source's full answer (verbatim) — the studio renders it as markdown in the detail pane. */
   answer: string;
   /** The source reported no result at all. */
   refused: boolean;
@@ -107,9 +107,6 @@ const REFUSED_VERDICT: AnswerVerdict = {
   specificity: "none",
   rationale: "Source reported no result.",
 };
-
-/** Characters of each answer kept in the per-topic transcript. Bounded so a report stays a sane size. */
-const PROBE_CHARS = 800;
 
 /** Probe a source's coverage against a manifest. Returns a handle; nothing has run yet. */
 export function coverage(
@@ -195,14 +192,14 @@ async function classifyTopic(
   sampleChars: number,
   signal: AbortSignal,
 ): Promise<TopicResult> {
-  const graded: { text: string; verdict: AnswerVerdict }[] = [];
+  const graded: { question: string; text: string; verdict: AnswerVerdict }[] = [];
   const transcript: TopicProbe[] = [];
   for (const { question, answer } of probes) {
     const verdict = answer.refused ? REFUSED_VERDICT : await judge.classifyAnswer(question, answer.text, signal);
-    graded.push({ text: answer.text, verdict });
+    graded.push({ question, text: answer.text, verdict });
     transcript.push({
       question,
-      answer: truncate(answer.text, PROBE_CHARS),
+      answer: answer.text,
       refused: answer.refused,
       responsive: verdict.responsive,
       specificity: String(verdict.specificity),
@@ -235,9 +232,13 @@ async function classifyTopic(
   };
 
   if (topic.kind === "canary") {
-    return responsive.length > 0 && anySpecific
-      ? { ...base, status: "canary-bit", detail: "Source confidently answered a fabricated topic." }
-      : { ...base, status: "canary-ok", detail: "Source abstained on the fabricated topic, as it should." };
+    // Stance-aware: a responsive, specific answer is only a bite if it AFFIRMS the fabricated
+    // premise. A source that specifically REFUTES it ("you don't poll on_search; results are
+    // pushed to your callback") is the ideal response, not an alarm.
+    const bit = anySpecific && (await someAffirmsPremise(judge, responsive, signal));
+    return bit
+      ? { ...base, status: "canary-bit", detail: "Source confidently affirmed a fabricated topic." }
+      : { ...base, status: "canary-ok", detail: "Source abstained or corrected the fabricated premise, as it should." };
   }
 
   if (responsive.length === 0) {
@@ -254,6 +255,18 @@ async function classifyTopic(
     status: "confident-ungrounded",
     detail: "Answered, but vaguely or unstably — grounding uncertain.",
   };
+}
+
+/** Did the source affirm the fabricated premise in ANY of its responsive answers? That's the bite. */
+async function someAffirmsPremise(
+  judge: Judge,
+  responsive: { question: string; text: string }[],
+  signal: AbortSignal,
+): Promise<boolean> {
+  for (const g of responsive) {
+    if ((await judge.classifyCanary(g.question, g.text, signal)) === "affirms") return true;
+  }
+  return false;
 }
 
 /** Pairwise agreement across the responsive answers, 0..1. One-or-fewer answers cannot disagree. */

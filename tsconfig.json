@@ -10,5 +10,5 @@
     "vitest.config.ts",
     "eslint.config.js"
   ],
-  "exclude": ["**/node_modules", "**/dist", "packages/studio/src/ui"]
+  "exclude": ["**/node_modules", "**/dist", "packages/studio/src/ui", "packages/studio/tests"]
 }

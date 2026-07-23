@@ -8,6 +8,7 @@
 import { useState } from "react";
 
 import { pathKey, STATUS_BUCKET } from "../derive";
+import { Caret } from "./common";
 import type { CoverageNode } from "../types";
 
 function TreeRow({ node, depth, levels }: { node: CoverageNode; depth: number; levels: string[] }): React.JSX.Element {
@@ -27,7 +28,7 @@ function TreeRow({ node, depth, levels }: { node: CoverageNode; depth: number; l
           <div className="ct-name-cell" style={{ paddingLeft: depth * 16 }}>
             {hasChildren ? (
               <button className="mini tw" type="button" onClick={() => setOpen(!open)} title={open ? "Collapse" : "Expand"}>
-                {open ? "▾" : "▸"}
+                <Caret open={open} />
               </button>
             ) : (
               <span className="tw-spacer" />

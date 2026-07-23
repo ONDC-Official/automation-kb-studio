@@ -39,7 +39,7 @@ import { readPolicy, seedPolicy, writePolicy } from "./access-store";
 import { DEFAULT_ACTOR, makeActorResolver, type Actor } from "./actor";
 import { connectDb, ensureIndexes, type DbHandle, type EvalRunDoc, type EvalScope, type TopicSnapshot, type WorkspaceMeta } from "./db";
 import { appendRevision, getRevision, listDeletions, listHistory } from "./history";
-import type { EndpointConfig } from "./llm-factory";
+import { listModels, type EndpointConfig } from "./llm-factory";
 import { declaredLevels, parseTopic, renderManifestYaml, SEGMENT_RE, TOPIC_ID_RE } from "./manifest-folder";
 import { mergeToMain, resolveConflict, syncFromMain } from "./merge";
 import { importKb } from "./migrate";
@@ -220,6 +220,7 @@ async function handleKb(req: IncomingMessage, res: ServerResponse, ctx: Ctx, met
   if (method === "POST" && path === "/api/restore") return await postRestore(req, res, ctx);
 
   // Eval runs — kick off a coverage probe against a user-supplied endpoint and read the results back.
+  if (method === "POST" && path === "/api/models") return await postModels(req, res, ctx);
   if (method === "POST" && path === "/api/runs") return await postRun(req, res, ctx);
   if (method === "GET" && path === "/api/runs") return await getRuns(req, res, ctx);
   if (method === "POST" && path.startsWith("/api/runs/")) return await postRunAction(req, res, ctx, path);
@@ -884,6 +885,28 @@ function runSummary(d: EvalRunDoc): Record<string, unknown> {
   };
 }
 
+/** List the models a base URL advertises, so the Evaluate form can offer them as a dropdown. Key optional (local servers ignore it). */
+async function postModels(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
+  const body = await readBody(req);
+  const provider = body["provider"];
+  if (provider !== "openai" && provider !== "anthropic") throw new BadRequest('provider must be "openai" or "anthropic"');
+  const baseUrl = body["baseUrl"];
+  if (typeof baseUrl !== "string" || !/^https?:\/\//i.test(baseUrl)) throw new BadRequest("baseUrl must be an http(s) URL");
+  try {
+    new URL(baseUrl);
+  } catch {
+    throw new BadRequest("baseUrl is not a valid URL");
+  }
+  const apiKey = typeof body["apiKey"] === "string" ? body["apiKey"] : "";
+  await resolveRead(ctx, req); // any authenticated actor may probe an endpoint they supplied
+  try {
+    sendJson(res, 200, { models: await listModels({ provider, baseUrl, apiKey }) });
+  } catch (err) {
+    // Surface the provider's reason (bad key, unreachable) to the form instead of a bare 500.
+    throw new BadRequest(err instanceof Error ? err.message : "could not list models");
+  }
+}
+
 async function postRun(req: IncomingMessage, res: ServerResponse, ctx: Ctx): Promise<void> {
   const body = await readBody(req);
   const source = parseEndpoint(body["source"], "source");
@@ -958,8 +981,11 @@ async function deleteRun(req: IncomingMessage, res: ServerResponse, ctx: Ctx, pa
   const doc = await ctx.db.evalRuns.findOne({ _id: id });
   if (!doc) throw new NotFound("no such run");
   if (doc.actor !== actor.email && !isAccessAdmin(policy, actor.email)) throw new Forbidden("this run belongs to someone else");
-  const wasLive = ctx.runner.cancel(id);
-  sendJson(res, 200, { ok: true, status: wasLive ? "canceled" : doc.status });
+  // Stop any live work first (a no-op for an already-stopped run), then remove the record entirely.
+  // The runner's trailing status writes use updateOne (never upsert), so they no-op once the doc is gone.
+  ctx.runner.cancel(id);
+  await ctx.db.evalRuns.deleteOne({ _id: id });
+  sendJson(res, 200, { ok: true, deleted: true });
 }
 
 // ---- static front-end ---------------------------------------------------------------------------

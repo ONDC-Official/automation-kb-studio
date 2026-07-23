@@ -6,6 +6,6 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src/ui"],
+  "include": ["src/ui", "tests"],
   "exclude": []
 }

@@ -47,6 +47,8 @@ export interface Judge {
   negate(claim: string, signal?: AbortSignal): Promise<string>;
   /** Does `sourceAnswer` affirm, deny, or stay unsure about `statement`? */
   assessStance(statement: string, sourceAnswer: string, signal?: AbortSignal): Promise<Stance>;
+  /** For a canary: does the answer treat the question's (possibly fabricated) premise as real? */
+  classifyCanary(question: string, answerText: string, signal?: AbortSignal): Promise<Stance>;
   /** Whether the judge backend actually enforces JSON schemas. Probed once, cached. */
   schemaEnforced(): Promise<boolean>;
   /** Accumulated caveats — e.g. the judge ran unconstrained, or a verdict fell back to a heuristic. */
@@ -182,6 +184,22 @@ export function createJudge(llm: Llm, profile: SubjectProfile = defaultProfile()
       if (v) return v.stance;
       noteFallback("stance");
       return stanceHeuristic(sourceAnswer);
+    },
+
+    async classifyCanary(question, answerText, signal) {
+      const v = await ask(
+        StanceSchema,
+        "stance",
+        `A question was asked whose premise may be fabricated:\n${question}\n\n` +
+          `The source answered:\n${answerText}\n\n` +
+          `Does the answer AFFIRM the premise — describing the asked-about thing as a real, usable ` +
+          `part of ${profile.subject} — or DENY it (say no such thing exists / correct the premise), ` +
+          `or stay unsure? Set "stance" to "affirms", "denies", or "unsure".`,
+        signal,
+      );
+      if (v) return v.stance;
+      noteFallback("canary-stance");
+      return stanceHeuristic(answerText);
     },
 
     schemaEnforced,

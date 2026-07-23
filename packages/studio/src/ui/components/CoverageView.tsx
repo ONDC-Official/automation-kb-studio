@@ -9,7 +9,7 @@
  *   per-topic status transitions joined by `topicKey`, grouped by path. Framed as tracking coverage &
  *   faithfulness, NOT correctness.
  */
-import { useState, type Dispatch } from "react";
+import { useLayoutEffect, useRef, useState, type Dispatch } from "react";
 
 import {
   METRICS,
@@ -22,7 +22,7 @@ import {
 import type { Action } from "../state";
 import type { CoverageReportWithTree, CoverageSummary, TopicResult } from "../types";
 import { CoverageTreeGauges } from "./CoverageTree";
-import { Gauges, StatusPill, Transcript } from "./common";
+import { AnswerDetail, Caret, Gauges, StatusPill, Transcript, type Selection } from "./common";
 
 function groupResults(topics: TopicResult[]): { path: string[]; topics: TopicResult[] }[] {
   const sorted = [...topics].sort(
@@ -88,8 +88,10 @@ function Footer({ report }: { report: CoverageReportWithTree }): React.JSX.Eleme
 
 export function SingleReport({ report, levels }: { report: CoverageReportWithTree; levels: string[] }): React.JSX.Element {
   const { metrics: m, totals: t } = report;
+  const [selected, setSelected] = useState<Selection | null>(null);
   return (
-    <>
+    <div className="report-split">
+      <div className="report-main">
       {m.canaryBiteRate > 0 ? (
         <div className="bite-banner">
           <BiteNumber text={pct(m.canaryBiteRate)} />
@@ -136,17 +138,30 @@ export function SingleReport({ report, levels }: { report: CoverageReportWithTre
         </thead>
         <tbody>
           {groupResults(report.topics).map((g) => (
-            <ReportGroup key={pathKey(g.path)} path={g.path} topics={g.topics} />
+            <ReportGroup key={pathKey(g.path)} path={g.path} topics={g.topics} selected={selected} onSelect={setSelected} />
           ))}
         </tbody>
       </table>
 
       <Footer report={report} />
-    </>
+      </div>
+
+      <AnswerDetail selection={selected} />
+    </div>
   );
 }
 
-function ReportGroup({ path, topics }: { path: string[]; topics: TopicResult[] }): React.JSX.Element {
+function ReportGroup({
+  path,
+  topics,
+  selected,
+  onSelect,
+}: {
+  path: string[];
+  topics: TopicResult[];
+  selected: Selection | null;
+  onSelect: (s: Selection) => void;
+}): React.JSX.Element {
   return (
     <>
       <tr className="area-sep">
@@ -155,22 +170,32 @@ function ReportGroup({ path, topics }: { path: string[]; topics: TopicResult[] }
         </td>
       </tr>
       {topics.map((tp) => (
-        <ReportRow key={tp.key} tp={tp} />
+        <ReportRow key={tp.key} tp={tp} selected={selected} onSelect={onSelect} />
       ))}
     </>
   );
 }
 
-/** One topic row; click to expand the Q&A transcript (what was asked + what the source answered). */
-function ReportRow({ tp }: { tp: TopicResult }): React.JSX.Element {
+/** One topic row; click to expand its questions, then click a question to load its answer into the detail pane. */
+function ReportRow({
+  tp,
+  selected,
+  onSelect,
+}: {
+  tp: TopicResult;
+  selected: Selection | null;
+  onSelect: (s: Selection) => void;
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const hasTx = !!tp.probes?.length;
+  const probes = tp.probes ?? [];
+  const hasTx = probes.length > 0;
+  const selectedIdx = selected && selected.key.startsWith(`${tp.key}#`) ? Number(selected.key.slice(`${tp.key}#`.length)) : null;
   return (
     <>
-      <tr className={hasTx ? "tx-toggle" : undefined} onClick={hasTx ? () => setOpen((o) => !o) : undefined} title={hasTx ? "Show the questions asked and the source's answers" : undefined}>
+      <tr className={hasTx ? "tx-toggle" : undefined} onClick={hasTx ? () => setOpen((o) => !o) : undefined} title={hasTx ? "Show the questions asked; click one to read its full response" : undefined}>
         <td>
           <span className="c-id">
-            {hasTx ? <span className="tx-caret">{open ? "▾" : "▸"}</span> : null}
+            {hasTx ? <span className="tx-caret"><Caret open={open} /></span> : null}
             {tp.id}
           </span>
         </td>
@@ -190,7 +215,14 @@ function ReportRow({ tp }: { tp: TopicResult }): React.JSX.Element {
       {open && hasTx ? (
         <tr className="tx-row">
           <td colSpan={5}>
-            <Transcript probes={tp.probes ?? []} />
+            <Transcript
+              probes={probes}
+              selected={selectedIdx}
+              onSelect={(i) => {
+                const probe = probes[i];
+                if (probe) onSelect({ key: `${tp.key}#${String(i)}`, title: tp.title, probe });
+              }}
+            />
           </td>
         </tr>
       ) : null}
@@ -311,6 +343,20 @@ export function CoverageView(props: {
 }): React.JSX.Element {
   const { runs, runA, runB, reports, levels, dispatch } = props;
 
+  // Measure the sticky toolbar's live height so the sticky detail pane pins exactly beneath it
+  // (the toolbar wraps to two rows on narrow widths). Same pattern as TopicList's `--toolbar-h`.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarH, setToolbarH] = useState(64);
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const measure = (): void => setToolbarH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const optionLabel = (r: CoverageSummary): string =>
     `${r.generatedAt || r.file} · ${r.source || "?"} · ${r.manifestId}@${r.manifestVersion}`;
 
@@ -332,8 +378,8 @@ export function CoverageView(props: {
   const comparing = !!runB && runB !== runA;
 
   return (
-    <section className="view">
-      <div className="toolbar">
+    <section className="view" style={{ "--toolbar-h": `${String(toolbarH)}px` } as React.CSSProperties}>
+      <div className="toolbar" ref={toolbarRef}>
         <div className="field">
           <label>Run</label>
           <select

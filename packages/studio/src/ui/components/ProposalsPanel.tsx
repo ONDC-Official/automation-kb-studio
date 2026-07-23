@@ -7,6 +7,7 @@
 import { useState } from "react";
 
 import type { Change, ChangeSnapshot, Identity, Proposal, ProposalDetail } from "../types";
+import { Caret } from "./common";
 
 const CLASS_LABEL: Record<Change["class"], string> = { add: "added", edit: "edited", delete: "deleted", conflict: "conflict" };
 const CLASS_CLS: Record<Change["class"], string> = { add: "s-ok", edit: "s-warn", delete: "s-muted", conflict: "s-alarm" };
@@ -238,7 +239,7 @@ export function ProposalsPanel({
                 return (
                   <li key={p.id} className="history-row" style={{ flexWrap: "wrap" }}>
                     <button className="icon-btn" type="button" title={open ? "Collapse" : "Expand"} onClick={() => toggle(p.id)}>
-                      {open ? "▾" : "▸"}
+                      <Caret open={open} />
                     </button>
                     <div className="history-main">
                       <div className="history-msg">

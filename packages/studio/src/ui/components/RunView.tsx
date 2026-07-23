@@ -13,13 +13,26 @@
  *
  * Styling goes through the app's design-system classes so it themes light/dark like the rest of the app.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch } from "react";
 
-import { pct, topicKey } from "../derive";
+import { post } from "../api";
+import { topicKey } from "../derive";
 import type { Action } from "../state";
-import type { EvalEndpoint, EvalProvider, EvalRunDetail, EvalRunStatus, EvalRunSummary, NodeInfo, ResumeRequest, RunLogEntry, RunRequest, Topic, TopicStatus } from "../types";
-import { StatusPill, Transcript } from "./common";
+import type {
+  EvalEndpoint,
+  EvalProvider,
+  EvalRunDetail,
+  EvalRunStatus,
+  EvalRunSummary,
+  NodeInfo,
+  ResumeRequest,
+  RunLogEntry,
+  RunRequest,
+  Topic,
+  TopicStatus,
+} from "../types";
+import { AnswerDetail, Caret, StatusPill, Transcript, type Selection } from "./common";
 import { SingleReport } from "./CoverageView";
 import { ScopeTree } from "./ScopeTree";
 
@@ -78,32 +91,173 @@ function progressPct(done: number, total: number): number {
   return total ? Math.round((done / total) * 100) : 0;
 }
 
-function EndpointCard({ title, hint, value, onChange }: { title: string; hint: string; value: EndpointDraft; onChange: (n: EndpointDraft) => void }): React.JSX.Element {
+function EndpointCard({
+  title,
+  hint,
+  value,
+  onChange,
+}: {
+  title: string;
+  hint: string;
+  value: EndpointDraft;
+  onChange: (n: EndpointDraft) => void;
+}): React.JSX.Element {
+  const [models, setModels] = useState<string[]>([]);
+  const [modelState, setModelState] = useState<"idle" | "loading" | "error">("idle");
+  const [modelError, setModelError] = useState("");
+  const [manual, setManual] = useState(false); // type the model name instead of picking (endpoint won't list, or lists wrong)
+
+  // Model options depend on provider+baseUrl+key — drop any stale list when those change.
+  const resetModels = (): void => {
+    setModels([]);
+    setModelState("idle");
+    setModelError("");
+  };
   const setProvider = (provider: EvalProvider): void => {
     const trimmed = value.baseUrl.trim();
     const baseUrl = trimmed === "" || KNOWN_BASES.has(trimmed) ? DEFAULT_BASE[provider] : value.baseUrl;
+    resetModels();
     onChange({ ...value, provider, baseUrl });
   };
+
+  const fetchModels = async (): Promise<void> => {
+    if (!/^https?:\/\//i.test(value.baseUrl.trim())) return;
+    setModelState("loading");
+    setModelError("");
+    try {
+      const r = await post<{ models: string[] }>("/api/models", {
+        provider: value.provider,
+        baseUrl: value.baseUrl.trim(),
+        apiKey: value.apiKey,
+      });
+      setModels(r.models);
+      setModelState("idle");
+    } catch (err) {
+      setModels([]);
+      setModelError(err instanceof Error ? err.message : String(err));
+      setModelState("error");
+    }
+  };
+
+  const placeholder =
+    modelState === "loading"
+      ? "fetching models…"
+      : models.length
+        ? "select a model"
+        : modelState === "error"
+          ? "couldn't fetch — ↻ or ✎"
+          : "↻ to load models";
+
   return (
     <div className="run-card">
       <div className="run-card-title">{title}</div>
       <p className="hint">{hint}</p>
       <label>Protocol</label>
-      <select className="f" value={value.provider} onChange={(e) => setProvider(e.target.value as EvalProvider)}>
+      <select
+        className="f"
+        value={value.provider}
+        onChange={(e) => setProvider(e.target.value as EvalProvider)}
+      >
         <option value="openai">OpenAI-compatible</option>
         <option value="anthropic">Anthropic Messages</option>
       </select>
       <label>Base URL</label>
-      <input className="f" value={value.baseUrl} placeholder={DEFAULT_BASE[value.provider]} onChange={(e) => onChange({ ...value, baseUrl: e.target.value })} />
+      <input
+        className="f"
+        value={value.baseUrl}
+        placeholder={DEFAULT_BASE[value.provider]}
+        onChange={(e) => {
+          resetModels();
+          onChange({ ...value, baseUrl: e.target.value });
+        }}
+      />
       <label>Model</label>
-      <input className="f" value={value.model} placeholder="model your endpoint serves" onChange={(e) => onChange({ ...value, model: e.target.value })} />
+      {manual ? (
+        <div className="id-line">
+          <input
+            className="f"
+            value={value.model}
+            placeholder="model your endpoint serves"
+            onChange={(e) => onChange({ ...value, model: e.target.value })}
+          />
+          <button
+            type="button"
+            className="btn subtle sm"
+            title="Pick from a fetched list instead"
+            onClick={() => {
+              setManual(false);
+              void fetchModels();
+            }}
+          >
+            List
+          </button>
+        </div>
+      ) : (
+        <div className="id-line">
+          <select
+            className="f"
+            style={{ flex: 1 }}
+            value={value.model}
+            onChange={(e) => onChange({ ...value, model: e.target.value })}
+          >
+            <option value="">{placeholder}</option>
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+            {value.model && !models.includes(value.model) ? (
+              <option value={value.model}>{value.model}</option>
+            ) : null}
+          </select>
+          <button
+            type="button"
+            className="btn btn-secondary sm"
+            title="Fetch models from the base URL"
+            disabled={modelState === "loading"}
+            onClick={() => void fetchModels()}
+          >
+            ↻
+          </button>
+          <button
+            type="button"
+            className="btn subtle sm"
+            title="Type the model name instead"
+            onClick={() => setManual(true)}
+          >
+            ✎
+          </button>
+        </div>
+      )}
+      {modelState === "error" ? (
+        <p className="hint">
+          Couldn't fetch models: {modelError || "unknown error"}. Use ↻ to retry or ✎ to type it in.
+        </p>
+      ) : null}
       <label>API key</label>
-      <input className="f" type="password" autoComplete="off" value={value.apiKey} placeholder="sent once, never stored" onChange={(e) => onChange({ ...value, apiKey: e.target.value })} />
+      <input
+        className="f"
+        type="password"
+        autoComplete="off"
+        value={value.apiKey}
+        placeholder="sent once, never stored"
+        onChange={(e) => onChange({ ...value, apiKey: e.target.value })}
+      />
     </div>
   );
 }
 
-function RunForm({ topics, nodes, onSubmit, disabled }: { topics: Topic[]; nodes: NodeInfo[]; onSubmit: (req: RunRequest) => void; disabled: boolean }): React.JSX.Element {
+function RunForm({
+  topics,
+  nodes,
+  onSubmit,
+  disabled,
+}: {
+  topics: Topic[];
+  nodes: NodeInfo[];
+  onSubmit: (req: RunRequest) => void;
+  disabled: boolean;
+}): React.JSX.Element {
   const [source, setSource] = useState<EndpointDraft>(() => blankEndpoint("openai"));
   const [judge, setJudge] = useState<EndpointDraft>(() => blankEndpoint("anthropic"));
   const [selected, setSelected] = useState<Set<string>>(() => new Set(topics.map(topicKey)));
@@ -130,20 +284,42 @@ function RunForm({ topics, nodes, onSubmit, disabled }: { topics: Topic[]; nodes
 
   return (
     <div className="run-form">
-      <div className="run-card">
-        <div className="run-card-title">Topics</div>
-        <p className="hint">
-          {selected.size >= topics.length ? "Covering the whole KB." : `Covering ${String(selected.size)} of ${String(topics.length)} topics.`}
-        </p>
-        <button type="button" className="btn btn-secondary sm" onClick={() => setScopeOpen((o) => !o)}>
-          {scopeOpen ? "Hide topics ▾" : "Choose topics ▸"}
-        </button>
-        {scopeOpen && <ScopeTree topics={topics} nodes={nodes} selected={selected} onChange={onScope} />}
+      <div className="run-config">
+        <div className="run-card">
+          <div className="run-card-title">Topics</div>
+          <p className="hint">
+            {selected.size >= topics.length
+              ? "Covering the whole KB."
+              : `Covering ${String(selected.size)} of ${String(topics.length)} topics.`}
+          </p>
+          <button type="button" className="btn btn-secondary sm" onClick={() => setScopeOpen((o) => !o)}>
+            {scopeOpen ? "Hide topics ▾" : "Choose topics ▸"}
+          </button>
+          {scopeOpen && <ScopeTree topics={topics} nodes={nodes} selected={selected} onChange={onScope} />}
+        </div>
+        <EndpointCard
+          title="Endpoint under test"
+          hint="Your model/agent endpoint. Its coverage of the KB is what gets measured."
+          value={source}
+          onChange={setSource}
+        />
+        <EndpointCard
+          title="Judge endpoint"
+          hint="A separate, trusted model that grades the answers — a source must not grade itself."
+          value={judge}
+          onChange={setJudge}
+        />
       </div>
-      <EndpointCard title="Endpoint under test" hint="Your model/agent endpoint. Its coverage of the KB is what gets measured." value={source} onChange={setSource} />
-      <EndpointCard title="Judge endpoint" hint="A separate, trusted model that grades the answers — a source must not grade itself." value={judge} onChange={setJudge} />
-      <button className="btn btn-primary" type="button" disabled={!ready || disabled} onClick={submit} title={ready ? "" : "Pick topics and fill in both endpoints"}>
-        {disabled ? "Starting…" : `Run coverage${selected.size < topics.length ? ` (${String(selected.size)})` : ""}`}
+      <button
+        className="btn btn-primary"
+        type="button"
+        disabled={!ready || disabled}
+        onClick={submit}
+        title={ready ? "" : "Pick topics and fill in both endpoints"}
+      >
+        {disabled
+          ? "Starting…"
+          : `Run coverage${selected.size < topics.length ? ` (${String(selected.size)})` : ""}`}
       </button>
       <p className="hint">Keys are used for this run only and never saved.</p>
     </div>
@@ -151,16 +327,44 @@ function RunForm({ topics, nodes, onSubmit, disabled }: { topics: Topic[]; nodes
 }
 
 /** Re-enter keys to resume a paused/interrupted run. Provider/URL/model are remembered; the scope is fixed. */
-function ResumePanel({ run, disabled, onResume }: { run: EvalRunDetail; disabled: boolean; onResume: (req: ResumeRequest) => void }): React.JSX.Element {
+function ResumePanel({
+  run,
+  disabled,
+  onResume,
+}: {
+  run: EvalRunDetail;
+  disabled: boolean;
+  onResume: (req: ResumeRequest) => void;
+}): React.JSX.Element {
   const [source, setSource] = useState<EndpointDraft>(() => fromEcho(run.source));
   const [judge, setJudge] = useState<EndpointDraft>(() => fromEcho(run.judge));
   const ready = endpointComplete(source) && endpointComplete(judge);
   return (
-    <div className="run-form" style={{ marginTop: 16 }}>
-      <div className="hint">Re-enter the API keys to continue from topic {run.progress.done + 1} of {run.progress.total}. Keys were never stored.</div>
-      <EndpointCard title="Endpoint under test" hint="Same endpoint as before — just the key." value={source} onChange={setSource} />
-      <EndpointCard title="Judge endpoint" hint="Same judge as before — just the key." value={judge} onChange={setJudge} />
-      <button className="btn btn-primary" type="button" disabled={!ready || disabled} onClick={() => onResume({ source: toWire(source), judge: toWire(judge) })}>
+    <div className="run-form">
+      <div className="hint">
+        Re-enter the API keys to continue from topic {run.progress.done + 1} of {run.progress.total}. Keys
+        were never stored.
+      </div>
+      <div className="run-config">
+        <EndpointCard
+          title="Endpoint under test"
+          hint="Same endpoint as before — just the key."
+          value={source}
+          onChange={setSource}
+        />
+        <EndpointCard
+          title="Judge endpoint"
+          hint="Same judge as before — just the key."
+          value={judge}
+          onChange={setJudge}
+        />
+      </div>
+      <button
+        className="btn btn-primary"
+        type="button"
+        disabled={!ready || disabled}
+        onClick={() => onResume({ source: toWire(source), judge: toWire(judge) })}
+      >
         {disabled ? "Resuming…" : "Resume run"}
       </button>
     </div>
@@ -196,13 +400,34 @@ function Tally({ log }: { log: RunLogEntry[] }): React.JSX.Element {
   );
 }
 
-function FeedRow({ entry }: { entry: RunLogEntry }): React.JSX.Element {
+/** One feed row; expand to list its questions, then click a question to load its answer into the shared pane. */
+function FeedRow({
+  entry,
+  selected,
+  onSelect,
+}: {
+  entry: RunLogEntry;
+  selected: Selection | null;
+  onSelect: (s: Selection) => void;
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const hasTx = !!entry.probes?.length;
+  const probes = entry.probes ?? [];
+  const hasTx = probes.length > 0;
+  const prefix = `${String(entry.seq)}#`;
+  const selectedIdx =
+    selected && selected.key.startsWith(prefix) ? Number(selected.key.slice(prefix.length)) : null;
   return (
     <div className="feed-row">
-      <div className={`feed-row-top${hasTx ? " tx-toggle" : ""}`} onClick={hasTx ? () => setOpen((o) => !o) : undefined} title={hasTx ? "Show the questions asked and the answers" : undefined}>
-        {hasTx ? <span className="tx-caret">{open ? "▾" : "▸"}</span> : null}
+      <div
+        className={`feed-row-top${hasTx ? " tx-toggle" : ""}`}
+        onClick={hasTx ? () => setOpen((o) => !o) : undefined}
+        title={hasTx ? "Show the questions asked; click one to read its full response" : undefined}
+      >
+        {hasTx ? (
+          <span className="tx-caret">
+            <Caret open={open} />
+          </span>
+        ) : null}
         <StatusPill status={entry.status} />
         <span className="feed-id">{entry.id}</span>
         <span className={`r-kind ${entry.kind}`}>{entry.kind}</span>
@@ -211,82 +436,128 @@ function FeedRow({ entry }: { entry: RunLogEntry }): React.JSX.Element {
         </span>
       </div>
       <div className="feed-detail">{entry.detail}</div>
-      {open && hasTx ? <Transcript probes={entry.probes ?? []} /> : entry.sample ? <div className="feed-sample">“{entry.sample}”</div> : null}
+      {open && hasTx ? (
+        <Transcript
+          probes={probes}
+          selected={selectedIdx}
+          onSelect={(i) => {
+            const probe = probes[i];
+            if (probe) onSelect({ key: `${prefix}${String(i)}`, title: entry.title || entry.id, probe });
+          }}
+        />
+      ) : entry.sample ? (
+        <div className="feed-sample"></div>
+      ) : null}
     </div>
   );
 }
 
-function FeedList({ log }: { log: RunLogEntry[] }): React.JSX.Element {
+function FeedList({
+  log,
+  selected,
+  onSelect,
+}: {
+  log: RunLogEntry[];
+  selected: Selection | null;
+  onSelect: (s: Selection) => void;
+}): React.JSX.Element {
   const feed = [...log].reverse(); // newest first
   return (
     <div className="live-feed">
-      {feed.length ? feed.map((e) => <FeedRow key={e.seq} entry={e} />) : <div className="hint" style={{ padding: "10px 2px" }}>Waiting for the first topic to resolve…</div>}
+      {feed.length ? (
+        feed.map((e) => <FeedRow key={e.seq} entry={e} selected={selected} onSelect={onSelect} />)
+      ) : (
+        <div className="hint" style={{ padding: "10px 2px" }}>
+          Waiting for the first topic to resolve…
+        </div>
+      )}
     </div>
   );
 }
 
-function LiveProbe({ detail, onPause, onCancel }: { detail: EvalRunDetail; onPause: () => void; onCancel: () => void }): React.JSX.Element {
+function LiveProbe({ detail }: { detail: EvalRunDetail }): React.JSX.Element {
   const { progress, log } = detail;
   const elapsed = useElapsed(detail.startedAt);
+  const [sel, setSel] = useState<Selection | null>(null);
   return (
-    <div className="live">
-      <div className="live-head">
-        <div className="live-headrow">
-          <div className="live-title">
-            Probing {detail.source.model} · <span className="live-pct">{progressPct(progress.done, progress.total)}%</span>
+    <div className="report-split">
+      <div className="report-main">
+        <div className="live">
+          <div className="live-head">
+            <div className="live-title">
+              Probing {detail.source.model} ·{" "}
+              <span className="live-pct">{progressPct(progress.done, progress.total)}%</span>
+            </div>
+            <div className="live-sub">
+              {progress.done}/{progress.total} topics · {elapsed} · {detail.manifestId}@
+              {detail.manifestVersion}
+            </div>
           </div>
-          <div className="live-controls">
-            <button type="button" className="btn btn-secondary sm" onClick={onPause}>
-              Pause
-            </button>
-            <button type="button" className="btn subtle sm" onClick={onCancel}>
-              Cancel
-            </button>
+          <div className="run-bar live-bar">
+            <div
+              className="run-bar-fill"
+              style={{ width: `${String(progressPct(progress.done, progress.total))}%` }}
+            />
           </div>
+          <div className="live-now">
+            <span className="live-dot" aria-hidden="true" />
+            {progress.current ? (
+              <span>
+                interrogating <b>{progress.current.title || progress.current.id}</b>{" "}
+                <span className={`r-kind ${progress.current.kind}`}>{progress.current.kind}</span>
+                <span className="live-now-sub"> — asking the source, then grading with the judge…</span>
+              </span>
+            ) : (
+              <span>working…</span>
+            )}
+          </div>
+          <Tally log={log} />
+          <FeedList log={log} selected={sel} onSelect={setSel} />
         </div>
-        <div className="live-sub">
-          {progress.done}/{progress.total} topics · {elapsed} · {detail.manifestId}@{detail.manifestVersion}
-        </div>
       </div>
-      <div className="run-bar live-bar">
-        <div className="run-bar-fill" style={{ width: `${String(progressPct(progress.done, progress.total))}%` }} />
-      </div>
-      <div className="live-now">
-        <span className="live-dot" aria-hidden="true" />
-        {progress.current ? (
-          <span>
-            interrogating <b>{progress.current.title || progress.current.id}</b> <span className={`r-kind ${progress.current.kind}`}>{progress.current.kind}</span>
-            <span className="live-now-sub"> — asking the source, then grading with the judge…</span>
-          </span>
-        ) : (
-          <span>working…</span>
-        )}
-      </div>
-      <Tally log={log} />
-      <FeedList log={log} />
+      <AnswerDetail selection={sel} />
     </div>
   );
 }
 
-function StoppedView({ detail, resuming, onResume }: { detail: EvalRunDetail; resuming: boolean; onResume: (req: ResumeRequest) => void }): React.JSX.Element {
+function StoppedView({
+  detail,
+  resuming,
+  onResume,
+}: {
+  detail: EvalRunDetail;
+  resuming: boolean;
+  onResume: (req: ResumeRequest) => void;
+}): React.JSX.Element {
   const paused = detail.status === "paused";
+  const [sel, setSel] = useState<Selection | null>(null);
   return (
-    <div className="live">
-      <div className="live-head">
-        <div className="live-title">
-          {paused ? "Paused" : "Interrupted"} · {progressPct(detail.progress.done, detail.progress.total)}%
-        </div>
-        <div className="live-sub">
-          {detail.progress.done}/{detail.progress.total} topics done · {detail.manifestId}@{detail.manifestVersion}
-          {detail.error ? ` · ${detail.error.message.split("\n")[0]}` : ""}
+    <div className="report-split">
+      <div className="report-main">
+        <div className="live">
+          <div className="live-head">
+            <div className="live-title">
+              {paused ? "Paused" : "Interrupted"} · {progressPct(detail.progress.done, detail.progress.total)}
+              %
+            </div>
+            <div className="live-sub">
+              {detail.progress.done}/{detail.progress.total} topics done · {detail.manifestId}@
+              {detail.manifestVersion}
+              {detail.error ? ` · ${detail.error.message.split("\n")[0]}` : ""}
+            </div>
+          </div>
+          <div className="run-bar">
+            <div
+              className="run-bar-fill"
+              style={{ width: `${String(progressPct(detail.progress.done, detail.progress.total))}%` }}
+            />
+          </div>
+          <ResumePanel run={detail} disabled={resuming} onResume={onResume} />
+          <Tally log={detail.log} />
+          <FeedList log={detail.log} selected={sel} onSelect={setSel} />
         </div>
       </div>
-      <div className="run-bar">
-        <div className="run-bar-fill" style={{ width: `${String(progressPct(detail.progress.done, detail.progress.total))}%` }} />
-      </div>
-      <ResumePanel run={detail} disabled={resuming} onResume={onResume} />
-      <Tally log={detail.log} />
-      <FeedList log={detail.log} />
+      <AnswerDetail selection={sel} />
     </div>
   );
 }
@@ -296,16 +567,12 @@ function ReportPane({
   hasSelection,
   levels,
   resuming,
-  onPause,
-  onCancel,
   onResume,
 }: {
   detail: EvalRunDetail | undefined;
   hasSelection: boolean;
   levels: string[];
   resuming: boolean;
-  onPause: () => void;
-  onCancel: () => void;
   onResume: (req: ResumeRequest) => void;
 }): React.JSX.Element {
   if (!detail) {
@@ -313,13 +580,17 @@ function ReportPane({
     return (
       <div className="empty">
         <div className="big">No run selected</div>
-        Configure a scope + endpoint on the left and run a coverage probe.
+        Pick a run above, or hit <b>＋ New run</b> to configure one.
       </div>
     );
   }
-  if (detail.status === "running") return <LiveProbe detail={detail} onPause={onPause} onCancel={onCancel} />;
-  if (detail.status === "paused" || detail.status === "interrupted") return <StoppedView detail={detail} resuming={resuming} onResume={onResume} />;
-  if (detail.status === "failed") return <div className="banner warn run-error">Run failed: {detail.error?.message ?? "unknown error"}</div>;
+  if (detail.status === "running") return <LiveProbe detail={detail} />;
+  if (detail.status === "paused" || detail.status === "interrupted")
+    return <StoppedView detail={detail} resuming={resuming} onResume={onResume} />;
+  if (detail.status === "failed")
+    return (
+      <div className="banner warn run-error">Run failed: {detail.error?.message ?? "unknown error"}</div>
+    );
   if (detail.status === "canceled") {
     return (
       <div className="empty">
@@ -332,47 +603,40 @@ function ReportPane({
   return <SingleReport report={detail.report} levels={levels} />;
 }
 
-function RunRow({ run, selected, onSelect, onPause, onCancel }: { run: EvalRunSummary; selected: boolean; onSelect: () => void; onPause: () => void; onCancel: () => void }): React.JSX.Element {
-  const scoped = run.scope.topicKeys !== null;
+/** Short age like "now" / "4m" / "2h" / "3d" from an ISO timestamp. */
+function relTime(iso: string): string {
+  const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return "now";
+  if (secs < 3600) return `${String(Math.floor(secs / 60))}m`;
+  if (secs < 86400) return `${String(Math.floor(secs / 3600))}h`;
+  return `${String(Math.floor(secs / 86400))}d`;
+}
+
+/** A run in the toolbar strip: status pill (colour = status), model, and a live % or age. */
+function RunChip({
+  run,
+  selected,
+  onSelect,
+}: {
+  run: EvalRunSummary;
+  selected: boolean;
+  onSelect: () => void;
+}): React.JSX.Element {
+  const trailing =
+    run.status === "running"
+      ? `${String(progressPct(run.progress.done, run.progress.total))}%`
+      : relTime(run.createdAt);
   return (
-    <li className={`run-row${selected ? " sel" : ""}`} onClick={onSelect}>
-      <div className="run-row-head">
-        <span className="run-row-model">{run.source.model || run.source.provider}</span>
-        <span className={`pill ${STATUS_PILL[run.status]}`}>{STATUS_LABEL[run.status]}</span>
-      </div>
-      <div className="run-row-meta">
-        {run.source.provider} · {run.manifestId}@{run.manifestVersion}
-        {scoped ? ` · ${String(run.progress.total)} topics` : ""}
-      </div>
-      {run.status === "running" ? (
-        <div className="run-progress">
-          <div className="run-bar">
-            <div className="run-bar-fill" style={{ width: `${String(progressPct(run.progress.done, run.progress.total))}%` }} />
-          </div>
-          <div className="run-progress-foot">
-            <span className="hint">
-              {run.progress.done}/{run.progress.total} topics
-            </span>
-            <span className="run-row-btns">
-              <button className="btn btn-secondary sm" type="button" onClick={(e) => { e.stopPropagation(); onPause(); }}>
-                Pause
-              </button>
-              <button className="btn subtle sm" type="button" onClick={(e) => { e.stopPropagation(); onCancel(); }}>
-                Cancel
-              </button>
-            </span>
-          </div>
-        </div>
-      ) : run.status === "succeeded" && run.metrics ? (
-        <div className="run-row-meta">
-          grounded {pct(run.metrics.groundedRate)} · refused {pct(run.metrics.refusalRate)} · canary-bite {pct(run.metrics.canaryBiteRate)}
-        </div>
-      ) : run.status === "paused" || run.status === "interrupted" ? (
-        <div className="run-row-meta">{run.progress.done}/{run.progress.total} done · select to resume</div>
-      ) : run.status === "failed" && run.error ? (
-        <div className="run-row-err">{run.error.message.split("\n")[0]}</div>
-      ) : null}
-    </li>
+    <button
+      type="button"
+      className={`run-chip${selected ? " sel" : ""}`}
+      onClick={onSelect}
+      title={`${run.source.model || run.source.provider} · ${STATUS_LABEL[run.status]}`}
+    >
+      <span className={`pill ${STATUS_PILL[run.status]}`}>{STATUS_LABEL[run.status]}</span>
+      <span className="run-chip-name">{run.source.model || run.source.provider}</span>
+      <span className="run-chip-time">{trailing}</span>
+    </button>
   );
 }
 
@@ -387,49 +651,120 @@ export function RunView(props: {
   resuming: boolean;
   onSubmit: (req: RunRequest) => void;
   onPause: (id: string) => void;
-  onCancel: (id: string) => void;
+  onDelete: (id: string) => void;
   onResume: (id: string, req: ResumeRequest) => void;
   dispatch: Dispatch<Action>;
 }): React.JSX.Element {
-  const { runs, selected, details, levels, topics, nodes, submitting, resuming, onSubmit, onPause, onCancel, onResume, dispatch } = props;
+  const {
+    runs,
+    selected,
+    details,
+    levels,
+    topics,
+    nodes,
+    submitting,
+    resuming,
+    onSubmit,
+    onPause,
+    onDelete,
+    onResume,
+    dispatch,
+  } = props;
   const detail = selected ? details[selected] : undefined;
 
+  // Config form is a collapsible band. Shown when explicitly opened, OR whenever there are no runs
+  // yet (so it can't get stuck open for a returning user once their runs load asynchronously).
+  const [configOpen, setConfigOpen] = useState(false);
+  const showConfig = configOpen || runs.length === 0;
+  const newRun = (): void => {
+    setConfigOpen(true);
+    dispatch({ type: "selectEvalRun", id: null });
+  };
+  const pickRun = (id: string): void => {
+    setConfigOpen(false);
+    dispatch({ type: "selectEvalRun", id });
+  };
+  const submit = (req: RunRequest): void => {
+    setConfigOpen(false);
+    onSubmit(req);
+  };
+  const removeRun = (id: string): void => {
+    if (window.confirm("Delete this run? This stops it if it's still going and removes it for good."))
+      onDelete(id);
+  };
+
+  // Measure the sticky toolbar so the sticky answer pane pins exactly beneath it (matches CoverageView).
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarH, setToolbarH] = useState(64);
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const measure = (): void => setToolbarH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const running = detail?.status === "running";
+
   return (
-    <section className="view">
-      <div className="cov-wrap run-grid">
-        <aside className="run-side">
-          <RunForm topics={topics} nodes={nodes} onSubmit={onSubmit} disabled={submitting} />
-          <div className="run-list-wrap">
-            <h6>Your runs</h6>
-            {runs.length ? (
-              <ul className="run-list">
-                {runs.map((r) => (
-                  <RunRow
-                    key={r.id}
-                    run={r}
-                    selected={r.id === selected}
-                    onSelect={() => dispatch({ type: "selectEvalRun", id: r.id })}
-                    onPause={() => onPause(r.id)}
-                    onCancel={() => onCancel(r.id)}
-                  />
-                ))}
-              </ul>
-            ) : (
-              <div className="hint">No runs yet — fill in the form and run one.</div>
-            )}
-          </div>
-        </aside>
-        <div className="run-report">
+    <section className="view" style={{ "--toolbar-h": `${String(toolbarH)}px` } as React.CSSProperties}>
+      <div className="toolbar" ref={toolbarRef}>
+        <div className="run-chips">
+          {runs.length ? (
+            runs.map((r) => (
+              <RunChip
+                key={r.id}
+                run={r}
+                selected={!showConfig && r.id === selected}
+                onSelect={() => pickRun(r.id)}
+              />
+            ))
+          ) : (
+            <span className="hint">No runs yet — configure one below.</span>
+          )}
+        </div>
+        {running ? (
+          <button
+            type="button"
+            className="btn btn-secondary sm"
+            onClick={() => selected && onPause(selected)}
+          >
+            Pause
+          </button>
+        ) : null}
+        {selected && !showConfig ? (
+          <button
+            type="button"
+            className="btn danger sm"
+            onClick={() => removeRun(selected)}
+            title={running ? "Stop and remove this run" : "Remove this run"}
+          >
+            Delete
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={`btn sm ${showConfig ? "btn-secondary" : "btn-primary"}`}
+          onClick={newRun}
+        >
+          ＋ New run
+        </button>
+      </div>
+
+      <div className="cov-wrap">
+        {showConfig ? (
+          <RunForm topics={topics} nodes={nodes} onSubmit={submit} disabled={submitting} />
+        ) : (
           <ReportPane
             detail={detail}
             hasSelection={selected !== null}
             levels={levels}
             resuming={resuming}
-            onPause={() => selected && onPause(selected)}
-            onCancel={() => selected && onCancel(selected)}
             onResume={(req) => selected && onResume(selected, req)}
           />
-        </div>
+        )}
       </div>
     </section>
   );

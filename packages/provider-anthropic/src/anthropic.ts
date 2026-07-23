@@ -455,6 +455,13 @@ async function toActionableError(error: unknown, cfg: AnthropicConfig, client: A
   return error instanceof Error ? error : new LlmError(String(error));
 }
 
+/** List the model ids the endpoint advertises (`GET /v1/models`). Errors propagate — the caller surfaces them. */
+export async function listAnthropicModels(cfg: { baseUrl: string; apiKey: string }): Promise<string[]> {
+  const client = new Anthropic({ baseURL: cfg.baseUrl, apiKey: cfg.apiKey });
+  const page = await client.models.list();
+  return page.data.map((m) => m.id);
+}
+
 /** Best-effort: we're already in an error path, so a second failure must not mask the first. */
 async function listModelsQuietly(client: Anthropic): Promise<string[]> {
   try {

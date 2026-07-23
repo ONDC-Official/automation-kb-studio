@@ -34,6 +34,28 @@ export function refusingSource(): KnowledgeSource {
 }
 
 /**
+ * The ideal source for a canary: instead of abstaining, it REFUTES the fabricated premise with a
+ * specific correction — responsive AND specific, yet not a bite. The false-positive case.
+ */
+export function refutingSource(canaryQuestions: Iterable<string>): KnowledgeSource {
+  const canaries = new Set(canaryQuestions);
+  return {
+    answer: (q) => {
+      if (canaries.has(q)) {
+        return Promise.resolve({
+          text: "No — that does not exist in ONDC. You do not poll for results; they are pushed to your specific callback endpoint.",
+          refused: false,
+        });
+      }
+      return Promise.resolve({
+        text: "Yes — per the specification this is correct and well-defined, using specific concrete fields.",
+        refused: false,
+      });
+    },
+  };
+}
+
+/**
  * The well-behaved source: specific answers to real topics, abstention on canaries, and — for the
  * validator's probes — affirms a claim but denies its negation.
  */
@@ -62,6 +84,13 @@ function isRefusal(text: string): boolean {
   return REFUSAL.test(text) || text.trim().length === 0;
 }
 
+/** The real judge's stance heuristic — denies on negation words, affirms on affirmation words. */
+function stance(text: string): Promise<Stance> {
+  if (/\b(no|not|incorrect|false|invalid)\b/i.test(text)) return Promise.resolve("denies");
+  if (/\b(yes|correct|true|valid)\b/i.test(text)) return Promise.resolve("affirms");
+  return Promise.resolve("unsure");
+}
+
 /** A deterministic judge: the real judge's heuristic fallback, with no model behind it. */
 export function fakeJudge(): Judge {
   return {
@@ -87,11 +116,9 @@ export function fakeJudge(): Judge {
 
     negate: (claim) => Promise.resolve(`It is not true that ${claim}`),
 
-    assessStance: (_statement, sourceAnswer): Promise<Stance> => {
-      if (/\b(no|not|incorrect|false|invalid)\b/i.test(sourceAnswer)) return Promise.resolve("denies");
-      if (/\b(yes|correct|true|valid)\b/i.test(sourceAnswer)) return Promise.resolve("affirms");
-      return Promise.resolve("unsure");
-    },
+    assessStance: (_statement, sourceAnswer): Promise<Stance> => stance(sourceAnswer),
+
+    classifyCanary: (_question, answerText): Promise<Stance> => stance(answerText),
 
     schemaEnforced: () => Promise.resolve(true),
     warnings: () => [],

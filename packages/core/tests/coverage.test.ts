@@ -8,7 +8,7 @@ import {
   type KnowledgeSource,
   type Manifest,
 } from "@evaluator/core";
-import { confabulatingSource, fakeJudge, honestSource, refusingSource } from "./fake-knowledge";
+import { confabulatingSource, fakeJudge, honestSource, refusingSource, refutingSource } from "./fake-knowledge";
 
 const manifest: Manifest = {
   id: "test-kb",
@@ -54,6 +54,15 @@ describe("coverage", () => {
     // The whole point: a fabricated verb has no truthful answer, so a confident answer is the alarm.
     expect(report.metrics.canaryBiteRate).toBe(1);
     expect(report.topics.find((t) => t.id === "fake-verb")?.status).toBe("canary-bit");
+  });
+
+  it("does NOT bite when the source specifically REFUTES a canary premise", async () => {
+    // A responsive, specific answer that CORRECTS the fabricated premise is the ideal response,
+    // not an alarm — the previously-misclassified false positive.
+    const report = await run(refutingSource(canaryQuestions));
+
+    expect(report.metrics.canaryBiteRate).toBe(0);
+    expect(report.topics.find((t) => t.id === "fake-verb")?.status).toBe("canary-ok");
   });
 
   it("flags a source that refuses everything as coverage gaps, not confabulation", async () => {

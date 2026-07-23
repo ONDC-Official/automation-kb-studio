@@ -1,2 +1,2 @@
-export { createAnthropicLlm } from "./anthropic";
+export { createAnthropicLlm, listAnthropicModels } from "./anthropic";
 export type { AnthropicConfig } from "./anthropic";

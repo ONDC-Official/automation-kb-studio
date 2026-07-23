@@ -43,3 +43,13 @@ export async function makeLlm(cfg: EndpointConfig): Promise<Llm> {
   const { createOpenAiLlm } = await import("@evaluator/provider-openai");
   return createOpenAiLlm({ ...base, schemaMode: cfg.schemaMode ?? "json_schema" });
 }
+
+/** List the model ids an endpoint advertises, so the dashboard can offer them as a dropdown. */
+export async function listModels(cfg: { provider: EvalProvider; baseUrl: string; apiKey: string }): Promise<string[]> {
+  if (cfg.provider === "anthropic") {
+    const { listAnthropicModels } = await import("@evaluator/provider-anthropic");
+    return listAnthropicModels(cfg);
+  }
+  const { listOpenAiModels } = await import("@evaluator/provider-openai");
+  return listOpenAiModels(cfg);
+}
