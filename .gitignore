@@ -5,7 +5,9 @@ dist/
 .env.local
 logs/
 kb-coverage/
-coverage/
+# Anchored: an unanchored `coverage/` also swallowed src/ui/pages/coverage/ (the Coverage page).
+/coverage/
+packages/*/coverage/
 .DS_Store
 
 # The KB manifest is a GENERATED snapshot of kb/topics/**; the folder is the source of truth. Committing
