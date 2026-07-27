@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { inScope, suggestLevelLabels, topicRefFromFile } from "../src/ui/derive";
+import { inScope, suggestLevelLabels, topicRefFromFile } from "../src/ui/lib/derive";
 
 describe("inScope", () => {
   it("root scope [[]] matches everything (admin / open mode)", () => {

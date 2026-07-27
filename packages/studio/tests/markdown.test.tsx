@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { Markdown } from "../src/ui/components/common";
+import Markdown from "../src/ui/components/Markdown";
 
 const html = (text: string): string => renderToStaticMarkup(<Markdown text={text} />);
 

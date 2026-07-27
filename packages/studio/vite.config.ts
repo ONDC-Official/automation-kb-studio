@@ -1,3 +1,6 @@
+import { resolve } from "node:path";
+
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -20,7 +23,11 @@ const base = rawBase === "/" ? "/" : `/${rawBase.replace(/^\/+|\/+$/g, "")}/`;
 export default defineConfig({
   root: "src/ui",
   base,
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  // `@/` → the front-end root (src/ui). Mirrors tsconfig `paths`; both must agree.
+  resolve: {
+    alias: { "@": resolve(__dirname, "src/ui") },
+  },
   build: {
     outDir: "../../dist",
     emptyOutDir: true,

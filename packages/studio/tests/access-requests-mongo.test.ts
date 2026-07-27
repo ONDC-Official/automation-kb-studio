@@ -4,7 +4,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import type { AccessRequest } from "../src/ui/types";
+import type { AccessRequest } from "../src/ui/services/types";
 import { reqAs, startStudio, teardown } from "./server-helper";
 import { startMongo, stopMongo } from "./mongo-helper";
 

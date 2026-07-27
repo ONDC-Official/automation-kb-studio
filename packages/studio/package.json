@@ -10,26 +10,41 @@
   },
   "scripts": {
     "dev": "tsx src/dev.ts",
-    "build": "vite build",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@evaluator/core": "workspace:*",
     "@evaluator/provider-anthropic": "workspace:*",
     "@evaluator/provider-openai": "workspace:*",
+    "@reduxjs/toolkit": "^2.12.0",
+    "@tanstack/react-query": "^5.101.4",
     "async-mutex": "^0.5.0",
+    "axios": "^1.18.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.26.0",
     "mongodb": "^6.12.0",
+    "radix-ui": "^1.6.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-hook-form": "^7.82.0",
+    "react-redux": "^9.3.0",
+    "react-router-dom": "^7.18.1",
+    "redux-persist": "^6.0.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.6.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "jsdom": "^25.0.1",
     "mongodb-memory-server": "^10.1.4",
+    "tailwindcss": "^4.3.3",
     "vite": "^7.1.5"
   }
 }

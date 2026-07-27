@@ -1,0 +1,295 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   KB STUDIO — design tokens ("Broadsheet" edition)
+   Ported verbatim from the old styles.css Broadsheet ramps into Tailwind v4's
+   token system. Runtime vars live on :root / [data-theme] (so light/dark/system
+   still switch at runtime); `@theme inline` maps them to Tailwind color names so
+   utilities exist (bg-surface, text-accent, bg-neutral-200, …). Components use
+   those utilities via cn() — never a hex literal. Add a color here, not in JSX.
+
+   Theme selection follows local precedent, not the template's `.dark` class:
+   system-dark when [data-theme] is unset, else the explicit [data-theme] value
+   (owned by the Redux themeSlice, which stamps <html data-theme>).
+   ============================================================================ */
+
+/* `dark:` utilities apply under an explicit dark theme OR system-dark-when-unset. */
+@custom-variant dark {
+  &:where([data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
+
+:root {
+  --background: #f3f2f2;
+  --surface: #eae9e9;
+  --foreground: #201e1d;
+  --accent: #0088b0;
+  --accent-2: #d6006c;
+  --border: color-mix(in srgb, #201e1d 16%, transparent);
+
+  --neutral-100: #f8f4f4;
+  --neutral-200: #eae7e7;
+  --neutral-300: #d7d3d3;
+  --neutral-400: #bab6b6;
+  --neutral-500: #9b9797;
+  --neutral-600: #7d7979;
+  --neutral-700: #605d5d;
+  --neutral-800: #444141;
+  --neutral-900: #2d2b2b;
+
+  --accent-100: #e9f8ff;
+  --accent-200: #cbeeff;
+  --accent-300: #99e0ff;
+  --accent-400: #62c5ee;
+  --accent-500: #38a6cf;
+  --accent-600: #1186ac;
+  --accent-700: #006786;
+  --accent-800: #004961;
+  --accent-900: #0a303e;
+
+  --accent-2-100: #fff1f4;
+  --accent-2-200: #ffdee6;
+  --accent-2-300: #ffc0d0;
+  --accent-2-400: #ff90b1;
+  --accent-2-500: #ff458e;
+  --accent-2-600: #d82071;
+  --accent-2-700: #aa0b56;
+  --accent-2-800: #790e3d;
+  --accent-2-900: #4b1528;
+
+  --process-yellow: #edbb00;
+  --caution-bg: #f6ecc7;
+  --caution-fg: #6b5200;
+
+  /* Status colors (fixed app-wide): emerald=ok, amber=warn, red=error. */
+  --ok: #0a7d4f;
+  --warn: #b7791f;
+  --error: #c02626;
+
+  --radius-sm: 1px;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+}
+
+/* Dark ramp mirrors light (100<->900) so "shade N bg / shade N+500 fg" pairs
+   keep reading correctly. The selector list applies it for BOTH forced dark
+   ([data-theme="dark"]) and system-dark-when-unset — see the @media clone below. */
+:root[data-theme="dark"] {
+  --background: #1c1b1a;
+  --surface: #262524;
+  --foreground: #f0eeee;
+  --accent: #3bb6df;
+  --accent-2: #ff458e;
+  --border: color-mix(in srgb, #f0eeee 18%, transparent);
+
+  --neutral-100: #2d2b2b;
+  --neutral-200: #444141;
+  --neutral-300: #605d5d;
+  --neutral-400: #7d7979;
+  --neutral-500: #9b9797;
+  --neutral-600: #bab6b6;
+  --neutral-700: #d7d3d3;
+  --neutral-800: #eae7e7;
+  --neutral-900: #f8f4f4;
+
+  --accent-100: #0a303e;
+  --accent-200: #004961;
+  --accent-300: #006786;
+  --accent-400: #1186ac;
+  --accent-500: #38a6cf;
+  --accent-600: #62c5ee;
+  --accent-700: #99e0ff;
+  --accent-800: #cbeeff;
+  --accent-900: #e9f8ff;
+
+  --accent-2-100: #4b1528;
+  --accent-2-200: #790e3d;
+  --accent-2-300: #aa0b56;
+  --accent-2-400: #d82071;
+  --accent-2-500: #ff458e;
+  --accent-2-600: #ff90b1;
+  --accent-2-700: #ffc0d0;
+  --accent-2-800: #ffdee6;
+  --accent-2-900: #fff1f4;
+
+  --process-yellow: #f5c728;
+  --caution-bg: #3a2f0a;
+  --caution-fg: #f5d76e;
+
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --error: #f87171;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 3px 10px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --background: #1c1b1a;
+    --surface: #262524;
+    --foreground: #f0eeee;
+    --accent: #3bb6df;
+    --accent-2: #ff458e;
+    --border: color-mix(in srgb, #f0eeee 18%, transparent);
+
+    --neutral-100: #2d2b2b;
+    --neutral-200: #444141;
+    --neutral-300: #605d5d;
+    --neutral-400: #7d7979;
+    --neutral-500: #9b9797;
+    --neutral-600: #bab6b6;
+    --neutral-700: #d7d3d3;
+    --neutral-800: #eae7e7;
+    --neutral-900: #f8f4f4;
+
+    --accent-100: #0a303e;
+    --accent-200: #004961;
+    --accent-300: #006786;
+    --accent-400: #1186ac;
+    --accent-500: #38a6cf;
+    --accent-600: #62c5ee;
+    --accent-700: #99e0ff;
+    --accent-800: #cbeeff;
+    --accent-900: #e9f8ff;
+
+    --accent-2-100: #4b1528;
+    --accent-2-200: #790e3d;
+    --accent-2-300: #aa0b56;
+    --accent-2-400: #d82071;
+    --accent-2-500: #ff458e;
+    --accent-2-600: #ff90b1;
+    --accent-2-700: #ffc0d0;
+    --accent-2-800: #ffdee6;
+    --accent-2-900: #fff1f4;
+
+    --process-yellow: #f5c728;
+    --caution-bg: #3a2f0a;
+    --caution-fg: #f5d76e;
+
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --error: #f87171;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 3px 10px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-border: var(--border);
+
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-800: var(--neutral-800);
+  --color-neutral-900: var(--neutral-900);
+
+  --color-accent-100: var(--accent-100);
+  --color-accent-200: var(--accent-200);
+  --color-accent-300: var(--accent-300);
+  --color-accent-400: var(--accent-400);
+  --color-accent-500: var(--accent-500);
+  --color-accent-600: var(--accent-600);
+  --color-accent-700: var(--accent-700);
+  --color-accent-800: var(--accent-800);
+  --color-accent-900: var(--accent-900);
+
+  --color-accent-2-100: var(--accent-2-100);
+  --color-accent-2-200: var(--accent-2-200);
+  --color-accent-2-300: var(--accent-2-300);
+  --color-accent-2-400: var(--accent-2-400);
+  --color-accent-2-500: var(--accent-2-500);
+  --color-accent-2-600: var(--accent-2-600);
+  --color-accent-2-700: var(--accent-2-700);
+  --color-accent-2-800: var(--accent-2-800);
+  --color-accent-2-900: var(--accent-2-900);
+
+  --color-process-yellow: var(--process-yellow);
+  --color-caution-bg: var(--caution-bg);
+  --color-caution-fg: var(--caution-fg);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-error: var(--error);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  --font-sans: -apple-system, "Segoe UI", system-ui, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply overflow-hidden bg-background text-foreground;
+    font: 14px/1.5 var(--font-sans);
+  }
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  code {
+    @apply rounded-sm bg-neutral-200 px-[5px] py-px font-mono text-[0.92em];
+  }
+}
+
+/* Topic card ⇄ editor unfold. Both mount with this one grid-rows 0fr→1fr grow,
+   so whichever element replaces the other (collapse or expand) animates in with
+   no empty gap — sequential animations on one grid cell can't cross-fade. */
+@keyframes kb-expand {
+  from {
+    opacity: 0;
+    grid-template-rows: 0fr;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    grid-template-rows: 1fr;
+    transform: translateY(0);
+  }
+}
+.anim-expand {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: kb-expand 170ms ease-out;
+}
+.anim-expand > * {
+  min-height: 0;
+  overflow: hidden;
+}
